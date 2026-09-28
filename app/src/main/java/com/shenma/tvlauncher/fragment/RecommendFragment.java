@@ -1,30 +1,18 @@
 package com.shenma.tvlauncher.fragment;
 import java.lang.reflect.Field;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import com.android.volley.AuthFailureError;
+import java.util.ArrayList;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import com.android.volley.RequestQueue;
-import com.android.volley.Response;
-import com.android.volley.TimeoutError;
-import com.android.volley.VolleyError;
-import com.android.volley.Request.Method;
-import com.android.volley.toolbox.HurlStack;
 import com.android.volley.toolbox.ImageLoader;
-import com.android.volley.toolbox.Volley;
 import com.shenma.tvlauncher.R;
 import com.shenma.tvlauncher.UserActivity;
 import com.shenma.tvlauncher.application.MyVolley;
-import com.shenma.tvlauncher.domain.Recommend;
-import com.shenma.tvlauncher.domain.RecommendInfo;
-import com.shenma.tvlauncher.network.GsonRequest;
-import com.shenma.tvlauncher.utils.Constant;
+import com.shenma.tvlauncher.netsource.TvBoxConfig;
 import com.shenma.tvlauncher.utils.Logger;
 import com.shenma.tvlauncher.utils.ScaleAnimEffect;
 import com.shenma.tvlauncher.utils.Utils;
 import com.shenma.tvlauncher.vod.SearchActivity;
-import com.shenma.tvlauncher.vod.VodDetailsActivity;
-import com.shenma.tvlauncher.vod.domain.VodDataInfo;
 
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -68,8 +56,8 @@ public class RecommendFragment extends BaseFragment implements OnFocusChangeList
 		}else{
 			((ViewGroup)view.getParent()).removeView(view);
 		}
-		if(data == null){
-			initData();	
+		if(netData == null){
+			initData();
 		}
 		return view;
 	}
@@ -121,67 +109,81 @@ public class RecommendFragment extends BaseFragment implements OnFocusChangeList
 		//re_fls[0].requestFocus();
 	}
 	
+	//从 TVBox 网络点播源（forever.json 第一个站点）加载最新影视
 	private void initData(){
-			mQueue = Volley.newRequestQueue(context, new HurlStack());
 			imageLoader = MyVolley.getImageLoader();
-			GsonRequest<Recommend> mRecommend = new GsonRequest<Recommend>(Method.GET, Constant.RECOMMEND_URL,
-					Recommend.class,createMyReqSuccessListener(),createMyReqErrorListener()){
-									@Override
-	                                public Map<String, String> getHeaders()
-	                                		throws AuthFailureError {
-	            						HashMap<String, String> headers = new HashMap<String, String>();
-	            						String base64 = new String(android.util.Base64.encode(
-	            								"admin:1234".getBytes(), android.util.Base64.DEFAULT));
-	            						headers.put("Authorization", "Basic " + base64);
-	                                	return headers;
-	                                }};
-	                                
-	      mQueue.add(mRecommend);     //     执行        
+			new Thread(new Runnable() {
+				@Override
+				public void run() {
+					final ArrayList<RecItem> items = new ArrayList<RecItem>();
+					try {
+						ArrayList<TvBoxConfig.Site> sites = TvBoxConfig.getSites(context);
+						if (sites != null && !sites.isEmpty()) {
+							String api = sites.get(0).api;
+							JSONObject j = new JSONObject(TvBoxConfig.fetchText(api + "?ac=videolist&pg=1", 15000));
+							JSONArray list = j.optJSONArray("list");
+							if (list != null) {
+								for (int i = 0; i < list.length() && items.size() < 6; i++) {
+									JSONObject v = list.optJSONObject(i);
+									if (v == null) {
+										continue;
+									}
+									RecItem r = new RecItem();
+									r.id = v.optString("vod_id");
+									r.title = v.optString("vod_name");
+									r.pic = v.optString("vod_pic");
+									if (r.title.length() > 0) {
+										items.add(r);
+									}
+								}
+							}
+						}
+					} catch (Exception e) {
+					}
+					if (home != null) {
+						home.runOnUiThread(new Runnable() {
+							@Override
+							public void run() {
+								showNetRecommend(items);
+							}
+						});
+					}
+				}
+			}, "net-recommend").start();
 	}
-	
-	//请求成功
-    private Response.Listener<Recommend> createMyReqSuccessListener() {
-        return new Response.Listener<Recommend>() {
-            @Override
-            public void onResponse(Recommend response) {
-            	data = response.getData();
-            	int paramInt = 0;
-            	String paramUrl;
-            	for(int i=0;i<data.size();i++){
-            		paramInt=i+3;
-            		tvs[i].setText(data.get(i).getTitle());
-            		paramUrl=data.get(i).getPic();
-            		tvs[i].setVisibility(View.VISIBLE);
 
-            		Logger.v("joychang", "paramUrl="+paramUrl);
-            		//Logger.d(TAG, "getTjtype = "+data.get(i).getTjtype()+"...getTjid="+data.get(i).getTjid());
-            		setTypeImage(paramInt,paramUrl);
-            	}
-            	
-            }
-        };
-    }
-    
-    private void setTypeImage(int paramInt,String paramUrl){
-        imageLoader.get(paramUrl, 
-                ImageLoader.getImageListener(re_typeLogs[paramInt], 
-                                              re_typebgs[paramInt], 
-                                              re_typebgs[paramInt]));
-    }
-    
-    //请求失败
-    private Response.ErrorListener createMyReqErrorListener() {
-        return new Response.ErrorListener() {
-            @Override
-            public void onErrorResponse(VolleyError error) {
-            	if(error instanceof TimeoutError){
-            		Logger.e("joychang", "请求超时");
-            	}else if(error instanceof AuthFailureError){
-            		Logger.e("joychang", "AuthFailureError="+error.toString());
-                }
-            }
-        };
-    }
+	//填充最新影视推荐位（iv_re_3~8 共 6 个格子）
+	private void showNetRecommend(ArrayList<RecItem> items){
+		if (items == null || items.isEmpty()) {
+			return;
+		}
+		netData = items;
+		for (int i = 0; i < items.size() && i < 6; i++) {
+			int slot = i + 3;
+			tvs[i].setText(items.get(i).title);
+			tvs[i].setVisibility(View.VISIBLE);
+			if (items.get(i).pic != null && items.get(i).pic.length() > 0) {
+				imageLoader.get(items.get(i).pic,
+						ImageLoader.getImageListener(re_typeLogs[slot], re_typebgs[slot], re_typebgs[slot]));
+			}
+		}
+	}
+
+	//点击推荐位：进入网络点播并自动打开该影片详情
+	private void openNetVod(int idx){
+		if (netData != null && idx < netData.size()) {
+			Intent i = new Intent();
+			i.setClass(home, com.shenma.tvlauncher.netsource.NetVodActivity.class);
+			i.putExtra("openVodId", netData.get(idx).id);
+			startActivity(i);
+		}
+	}
+
+	private static class RecItem {
+		String id;
+		String title;
+		String pic;
+	}
 	
 	
 	protected void loadViewLayout() {
@@ -707,73 +709,22 @@ public class RecommendFragment extends BaseFragment implements OnFocusChangeList
 			//Utils.showToast(home, "小米商城暂未开放！", R.drawable.toast_smile);
 			break;
 		case R.id.iv_re_3:
-			if(null!=data){
-				i = new Intent();
-				i.setClass(home, VodDetailsActivity.class);
-				i.putExtra("vodId", data.get(0).getId());
-
-				i.putExtra("nextlink", data.get(0).getNextlink());
-				i.putExtra("vodstate", data.get(0).getState());
-				i.putExtra("vodtype", data.get(0).getType().toUpperCase());
-				startActivity(i);
-			}
+			openNetVod(0);
 			break;
 		case R.id.iv_re_4:
-			if(null!=data){
-				i = new Intent();
-				i.setClass(home, VodDetailsActivity.class);
-				i.putExtra("vodId", data.get(1).getId());
-				i.putExtra("nextlink", data.get(1).getNextlink());
-				i.putExtra("vodstate", data.get(1).getState());
-				i.putExtra("vodtype", data.get(1).getType().toUpperCase());
-				startActivity(i);
-			}
+			openNetVod(1);
 			break;
 		case R.id.iv_re_5:
-			if(null!=data){
-				i = new Intent();
-				i.setClass(home, VodDetailsActivity.class);
-				i.putExtra("vodId", data.get(2).getId());
-				i.putExtra("nextlink", data.get(2).getNextlink());
-				i.putExtra("vodstate", data.get(2).getState());
-				i.putExtra("vodtype", data.get(2).getType().toUpperCase());
-				startActivity(i);
-			}
+			openNetVod(2);
 			break;
 		case R.id.iv_re_6:
-			if(null!=data){
-				i = new Intent();
-				i.setClass(home, VodDetailsActivity.class);
-				i.putExtra("vodId", data.get(3).getId());
-				i.putExtra("nextlink", data.get(3).getNextlink());
-				i.putExtra("vodstate", data.get(3).getState());
-				i.putExtra("vodtype", data.get(3).getType().toUpperCase());
-				Logger.d(TAG, "推荐位类型===="+data.get(3).getType().toUpperCase());
-				startActivity(i);
-			}
+			openNetVod(3);
 			break;
 		case R.id.iv_re_7:
-			if(null!=data){
-				i = new Intent();
-				i.setClass(home, VodDetailsActivity.class);
-				i.putExtra("vodId", data.get(4).getId());
-				i.putExtra("nextlink", data.get(4).getNextlink());
-				i.putExtra("vodstate", data.get(4).getState());
-				i.putExtra("vodtype", data.get(4).getType().toUpperCase());
-				startActivity(i);
-			}
+			openNetVod(4);
 			break;
 		case R.id.iv_re_8:
-			if(null!=data){
-				i = new Intent();
-				i.setClass(home, VodDetailsActivity.class);
-				i.putExtra("vodId", data.get(5).getId());
-				i.putExtra("nextlink", data.get(5).getNextlink());
-				i.putExtra("vodstate", data.get(5).getState());
-				i.putExtra("vodtype", data.get(5).getType().toUpperCase());
-				Logger.d(TAG, "星星state="+data.get(5).getState());
-				startActivity(i);
-			}
+			openNetVod(5);
 			break;
 		}
 		home.overridePendingTransition(android.R.anim.fade_in,
@@ -791,7 +742,7 @@ public class RecommendFragment extends BaseFragment implements OnFocusChangeList
 	
 	public RequestQueue mQueue;
 	public ImageLoader imageLoader;
-	private List<VodDataInfo> data = null;
+	private ArrayList<RecItem> netData = null;
 	private TextView tv_intro = null;
 
 }

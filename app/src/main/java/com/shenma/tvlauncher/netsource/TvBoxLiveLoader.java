@@ -3,6 +3,7 @@ package com.shenma.tvlauncher.netsource;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 import com.shenma.tvlauncher.utils.Logger;
 
@@ -29,6 +30,7 @@ public class TvBoxLiveLoader {
 		public String group = "";
 		public String name = "";
 		public String url = "";
+		public ArrayList<String> urls;// 多线路地址（含 url），mergeChannels 后使用
 	}
 
 	/**
@@ -59,6 +61,55 @@ public class TvBoxLiveLoader {
 		if (all.isEmpty()) {
 			return false;
 		}
+		return writeDataXml(ctx, all);
+	}
+
+	/**
+	 * 拉取指定地址的直播频道表（TVBox txt / M3U），同名频道合并为多线路后生成 data.xml
+	 * （阻塞方法，需在子线程调用）
+	 * @return 是否成功生成
+	 */
+	public static boolean buildDataXmlFromUrl(Context ctx, String url) {
+		ArrayList<Channel> all = new ArrayList<Channel>();
+		try {
+			String text = TvBoxConfig.fetchText(url, 15000);
+			if (text != null && text.length() > 0) {
+				if (text.contains("#EXTM3U") || text.contains("#EXTINF")) {
+					all = parseM3U(text);
+				} else {
+					all = parseLiveTxt(text);
+				}
+			}
+		} catch (Exception e) {
+			Logger.w(TAG, "live url load failed: " + e);
+		}
+		all = mergeChannels(all);
+		if (all.isEmpty()) {
+			return false;
+		}
+		return writeDataXml(ctx, all);
+	}
+
+	/** 同名频道合并：保留首次出现的分组与顺序，url 汇总为 urls 线路列表 */
+	public static ArrayList<Channel> mergeChannels(ArrayList<Channel> src) {
+		ArrayList<Channel> out = new ArrayList<Channel>();
+		HashMap<String, Channel> idx = new HashMap<String, Channel>();
+		for (Channel c : src) {
+			Channel hit = idx.get(c.name);
+			if (hit == null) {
+				c.urls = new ArrayList<String>();
+				c.urls.add(c.url);
+				idx.put(c.name, c);
+				out.add(c);
+			} else {
+				hit.urls.add(c.url);
+			}
+		}
+		return out;
+	}
+
+	/** 频道列表写为 data.xml */
+	private static boolean writeDataXml(Context ctx, ArrayList<Channel> all) {
 		String xml = toDataXml(all);
 		try {
 			File f = new File(ctx.getFilesDir(), "data.xml");
@@ -144,7 +195,14 @@ public class TvBoxLiveLoader {
 				curGroup = g;
 			}
 			sb.append("    <channel name=\"").append(esc(c.name)).append("\" epg=\"\">\n");
-			sb.append("      <tvlink link=\"").append(esc(c.url)).append("\" source=\"线路1\"/>\n");
+			if (c.urls != null && !c.urls.isEmpty()) {
+				for (int k = 0; k < c.urls.size(); k++) {
+					sb.append("      <tvlink link=\"").append(esc(c.urls.get(k)))
+							.append("\" source=\"线路").append(k + 1).append("\"/>\n");
+				}
+			} else {
+				sb.append("      <tvlink link=\"").append(esc(c.url)).append("\" source=\"线路1\"/>\n");
+			}
 			sb.append("    </channel>\n");
 		}
 		if (curGroup != null) {

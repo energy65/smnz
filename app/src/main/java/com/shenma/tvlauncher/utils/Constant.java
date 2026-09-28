@@ -74,7 +74,11 @@ public class Constant {
 
 	//TVBox 网络源配置（在线为主，assets 内置 forever.json 兜底）
 	public static final String TVBOX_CONFIG_URL = "https://v4.gh-proxy.org/https://raw.githubusercontent.com/energy65/yl/refs/heads/main/forever.json";
-	public final static String TVLIVE_NET = "TVLIVE_NET"; 
+	public final static String TVLIVE_NET = "TVLIVE_NET";
+
+	//网络电视直播频道表（TVBox txt 格式：分组,#genre# + 频道名,url）
+	public static final String YLZB_URL = "https://v4.gh-proxy.org/https://raw.githubusercontent.com/energy65/yl/refs/heads/main/ylzb.txt";
+	public final static String TVLIVE_YL = "TVLIVE_YL";
 	
 	//电视频道
 	public final static String TVSTATIONS = "http://smtvzm.com/index.php/channel/getsyschannel.json";

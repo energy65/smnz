@@ -68,6 +68,8 @@ public class NetVodActivity extends Activity {
 
 	private String mPresetCat = "";// 入口预设分类关键词（如 电影/电视剧），匹配不到则回退"全部"
 
+	private String mOpenVodId = null;// 入口指定影片 id（首页推荐位），列表加载后自动打开详情
+
 	private LruCache<String, Bitmap> mPicCache = new LruCache<String, Bitmap>(64);
 	private Handler mUi = new Handler();
 
@@ -78,6 +80,10 @@ public class NetVodActivity extends Activity {
 		String pc = getIntent().getStringExtra("presetCat");
 		if (pc != null) {
 			mPresetCat = pc;
+		}
+		String ovi = getIntent().getStringExtra("openVodId");
+		if (ovi != null) {
+			mOpenVodId = ovi;
 		}
 		findViews();
 		mAdapter = new GridAdapter();
@@ -369,6 +375,18 @@ public class NetVodActivity extends Activity {
 						if (fList.length() == 0) {
 							Toast.makeText(NetVodActivity.this, "没有找到相关影片", Toast.LENGTH_SHORT).show();
 						}
+						// 首页推荐位进入：自动打开指定影片详情（仅一次）
+						if (mOpenVodId != null) {
+							String want = mOpenVodId;
+							mOpenVodId = null;
+							for (int k = 0; k < fList.length(); k++) {
+								JSONObject it = fList.optJSONObject(k);
+								if (it != null && want.equals(it.optString("vod_id"))) {
+									openDetail(k);
+									break;
+								}
+							}
+						}
 					}
 				});
 			}
@@ -483,6 +501,19 @@ public class NetVodActivity extends Activity {
 
 	private void buildLineRow() {
 		mLineRow.removeAllViews();
+		// 线路行前显示视频来源站点名（不在视频顶部显示）
+		if (mSites != null && mSiteIdx >= 0 && mSiteIdx < mSites.size()) {
+			TextView src = new TextView(this);
+			src.setText("来源：" + mSites.get(mSiteIdx).name);
+			src.setTextColor(0xFF9AA1AC);
+			src.setTextSize(13);
+			src.setGravity(Gravity.CENTER_VERTICAL);
+			LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+					LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT);
+			slp.rightMargin = 12;
+			src.setLayoutParams(slp);
+			mLineRow.addView(src);
+		}
 		for (int i = 0; i < mLines.size(); i++) {
 			final int idx = i;
 			Button b = makeChip(mLines.get(i).name, i == mLineIdx);

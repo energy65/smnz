@@ -193,6 +193,9 @@ public class TVLivePlayer extends BaseActivity implements OnItemClickListener,
 				showLogoutDialog();
 				//Utils.showToast(TVLivePlayer.this, "亲爱的用户，您还没有登录呢！", R.drawable.toast_shut);
 			}
+		}else if(TVTYPE.equals(Constant.TVLIVE_YL)){
+			// 网络电视频道表（ylzb.txt），免登录，直链播放
+			loadYlzbConfig();
 		}else if(TVTYPE.equals(Constant.TVLIVE_NET)){
 			// 网络配置源（TVBox forever.json），免登录，直链播放
 			loadNetConfig();
@@ -232,6 +235,37 @@ public class TVLivePlayer extends BaseActivity implements OnItemClickListener,
 		}, "tvbox-live-loader").start();
 	}
 	
+	/**
+	 * 加载网络电视频道表：ylzb.txt -> data.xml，完成后走统一的 DOWNLOAD_XML_DONE 流程
+	 */
+	private void loadYlzbConfig(){
+		final android.content.Context ctx = this;
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				boolean ok;
+				try {
+					ok = com.shenma.tvlauncher.netsource.TvBoxLiveLoader.buildDataXmlFromUrl(ctx, Constant.YLZB_URL);
+				} catch (Exception e) {
+					ok = false;
+				}
+				if (ok) {
+					myHandler.sendEmptyMessage(LiveConstant.DOWNLOAD_XML_DONE);
+				} else {
+					runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							closeDialog();
+							android.widget.Toast.makeText(TVLivePlayer.this,
+									"网络直播源加载失败，请检查网络", android.widget.Toast.LENGTH_LONG).show();
+							finish();
+						}
+					});
+				}
+			}
+		}, "ylzb-live-loader").start();
+	}
+
 	private void initData(){
 		String ckinfo = "231231";
 		StringRequest sr = new StringRequest("http://www.smtvzm.com/index.php/user/getmychannel.xml?"+"loginname="+uName+"&ckinfo="+ckinfo,
@@ -1262,7 +1296,7 @@ public class TVLivePlayer extends BaseActivity implements OnItemClickListener,
 				if(null==currentMedia || "".equals(currentMedia)){
 					return;
 				}
-				if(TVTYPE.equals(Constant.TVLIVE_DIY) || TVTYPE.equals(Constant.TVLIVE_NET)){
+				if(TVTYPE.equals(Constant.TVLIVE_DIY) || TVTYPE.equals(Constant.TVLIVE_NET) || TVTYPE.equals(Constant.TVLIVE_YL)){
 					mVideoSource = currentMedia;
 				}else{
 					mVideoSource = iplay.returnPlayUrl(currentMedia);

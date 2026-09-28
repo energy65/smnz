@@ -1,6 +1,7 @@
 package com.shenma.tvlauncher.fragment;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.util.Base64;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -21,6 +23,10 @@ import android.view.animation.Animation;
 import android.view.animation.Animation.AnimationListener;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.TextView;
+
+import com.shenma.tvlauncher.netsource.TvBoxConfig;
+import com.shenma.tvlauncher.netsource.TvBoxLiveLoader;
 
 import com.android.volley.AuthFailureError;
 import com.android.volley.Request.Method;
@@ -62,6 +68,7 @@ public class TVFragment extends BaseFragment{
 	private TVStationDao dao;
 	private List<TVSCollect> tvs;
 	private List<TVStationInfo> data;
+	private ArrayList<TvBoxLiveLoader.Channel> mYlChannels;// 网络电视频道（ylzb.txt）
 	
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -103,6 +110,56 @@ public class TVFragment extends BaseFragment{
 		loadViewLayout();
 		findViewById();
 		setListener();
+		loadYlChannels();
+	}
+
+	/** 子线程加载网络电视频道表（ylzb.txt），把前 12 个频道名显示到"添加频道"格子 */
+	private void loadYlChannels() {
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				ArrayList<TvBoxLiveLoader.Channel> chans = null;
+				try {
+					String text = TvBoxConfig.fetchText(Constant.YLZB_URL, 15000);
+					if (text != null && text.length() > 0) {
+						if (text.contains("#EXTM3U") || text.contains("#EXTINF")) {
+							chans = TvBoxLiveLoader.parseM3U(text);
+						} else {
+							chans = TvBoxLiveLoader.parseLiveTxt(text);
+						}
+						chans = TvBoxLiveLoader.mergeChannels(chans);
+					}
+				} catch (Exception e) {
+				}
+				final ArrayList<TvBoxLiveLoader.Channel> fChans = chans;
+				if (home != null) {
+					home.runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							mYlChannels = fChans;
+							showYlChannels();
+						}
+					});
+				}
+			}
+		}, "ylzb-channels").start();
+	}
+
+	private void showYlChannels() {
+		if (mYlChannels == null || mYlChannels.isEmpty()) {
+			return;
+		}
+		for (int i = 0; i < 12 && i < mYlChannels.size(); i++) {
+			TextView tv = new TextView(home);
+			tv.setText(mYlChannels.get(i).name);
+			tv.setTextColor(0xFFFFFFFF);
+			tv.setTextSize(12);
+			tv.setGravity(Gravity.CENTER);
+			tv.setBackgroundColor(0x66000000);
+			tv.setClickable(false);
+			tv_fls[i + 3].addView(tv, new FrameLayout.LayoutParams(
+					ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+		}
 	}
 	
 	protected void loadViewLayout() {
@@ -176,9 +233,9 @@ public class TVFragment extends BaseFragment{
 					Intent i = new Intent();
 					switch (v.getId()) {
 					case R.id.tv_iv_livetv:
-						//直播
+						//直播（网络电视频道表 ylzb.txt）
 						i.setClass(home, TVLivePlayer.class);
-						i.putExtra("TVTYPE", Constant.TVLIVE);
+						i.putExtra("TVTYPE", Constant.TVLIVE_YL);
 						startActivity(i);
 						break;
 					case R.id.tv_iv_watchback:
@@ -602,6 +659,14 @@ public class TVFragment extends BaseFragment{
 	}
 	
 	private void initOnClickListener(Intent intent, int index){
+		// 已加载网络电视频道表（ylzb.txt）时，直接播放对应频道（编号 1 起，与 data.xml 顺序一致）
+		if (mYlChannels != null && index >= 1 && index <= mYlChannels.size()) {
+			intent.setClass(home, TVLivePlayer.class);
+			intent.putExtra("KEYCHANNE", index);
+			intent.putExtra("TVTYPE", Constant.TVLIVE_YL);
+			startActivity(intent);
+			return;
+		}
 		TVSCollect tv = getTvsByIndex(index);
 		if(tv != null) {
 			intent.setClass(home, TVLivePlayer.class);
