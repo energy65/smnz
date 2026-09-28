@@ -1,434 +1,474 @@
 package com.shenma.tvlauncher.vod;
 
+import java.net.URLEncoder;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 
-import com.android.volley.AuthFailureError;
-import com.android.volley.ParseError;
-import com.android.volley.RequestQueue;
-import com.android.volley.Response;
-import com.android.volley.TimeoutError;
-import com.android.volley.VolleyError;
-import com.android.volley.Request.Method;
-import com.android.volley.toolbox.HurlStack;
-import com.android.volley.toolbox.Volley;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.ImageLoader;
+import com.nostra13.universalimageloader.core.assist.ImageScaleType;
+import com.nostra13.universalimageloader.core.display.FadeInBitmapDisplayer;
 import com.shenma.tvlauncher.R;
-import com.shenma.tvlauncher.network.GsonRequest;
-import com.shenma.tvlauncher.utils.Constant;
+import com.shenma.tvlauncher.netsource.TvBoxConfig;
 import com.shenma.tvlauncher.utils.Logger;
 import com.shenma.tvlauncher.utils.Utils;
-import com.shenma.tvlauncher.vod.adapter.SearchTypeAdapter;
-import com.shenma.tvlauncher.vod.domain.RequestVo;
-import com.shenma.tvlauncher.vod.domain.VodDataInfo;
-import com.shenma.tvlauncher.vod.domain.VodTypeInfo;
 
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
-import android.view.View.OnClickListener;
+import android.view.ViewGroup;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
-import android.widget.AdapterView.OnItemSelectedListener;
+import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.GridView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.AbsListView.OnScrollListener;
 import android.widget.AdapterView.OnItemClickListener;
 
-public class SearchActivity extends Activity implements OnClickListener {
+/**
+ * 搜索页：深色主题，海报网格 + 底部筛选面板（类型/年份/地区/排序）
+ * 搜索范围覆盖 forever.json 中所有 type=1 的 CMS 站点
+ */
+public class SearchActivity extends Activity {
+
+    // 筛选数据：{API值, 显示文本}
+    private static final String[][] FILTER_CLASS = {
+            {"", "全部"}, {"古装", "古装"}, {"喜剧", "喜剧"}, {"爱情", "爱情"},
+            {"动作", "动作"}, {"科幻", "科幻"}, {"悬疑", "悬疑"}, {"战争", "战争"},
+            {"青春", "青春"}, {"偶像", "偶像"}, {"都市", "都市"}, {"家庭", "家庭"}
+    };
+    private static final String[][] FILTER_YEAR = {
+            {"", "全部"}, {"2026", "2026"}, {"2025", "2025"}, {"2024", "2024"},
+            {"2023", "2023"}, {"2022", "2022"}, {"2021", "2021"}, {"2020", "2020"},
+            {"2019", "2019"}
+    };
+    private static final String[][] FILTER_AREA = {
+            {"", "全部"}, {"内地", "内地"}, {"香港", "香港"}, {"台湾", "台湾"},
+            {"美国", "美国"}, {"韩国", "韩国"}, {"日本", "日本"}, {"英国", "英国"}
+    };
+    private static final String[][] FILTER_SORT = {
+            {"time", "最近更新"}, {"hits", "热度优先"}, {"score", "评分最高"}
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // TODO Auto-generated method stub
         super.onCreate(savedInstanceState);
         setContentView(R.layout.mv_search_new);
         context = SearchActivity.this;
-        initIntent();
         initView();
     }
 
     @Override
     protected void onStop() {
-        // TODO Auto-generated method stub
         super.onStop();
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
     }
 
+    // ==================== Views ====================
+    private EditText search_input;
+    private TextView tv_page_info, tv_empty;
+    private GridView gv_result;
+    private LinearLayout filter_columns;
+    private NetAdapter mAdapter;
+
+    // ==================== State ====================
+    private Context context;
+    private int mPage = 1, mPageCount = 1;
+    private boolean mLoading = false;
+    private String mKeyword = "";
+    private int mSearchSeq = 0;
+
+    // 筛选选中索引
+    private int mSelClass = 0, mSelYear = 0, mSelArea = 0, mSelSort = 0;
+
+    // 各列容器引用（用于切换高亮）
+    private LinearLayout mColClass, mColYear, mColArea, mColSort;
+
     private void initView() {
-        findViewById();
-        loadViewLayout();
-        setListener();
-    }
+        search_input = (EditText) findViewById(R.id.search_keybord_input);
+        tv_page_info = (TextView) findViewById(R.id.search_page_info);
+        tv_empty = (TextView) findViewById(R.id.search_empty_text);
+        gv_result = (GridView) findViewById(R.id.search_result);
+        gv_result.setSelector(new ColorDrawable(Color.TRANSPARENT));
+        filter_columns = (LinearLayout) findViewById(R.id.filter_columns);
 
-    private void findViewById() {
-        sb = new StringBuilder();
-        search_keybord_input = (EditText) findViewById(R.id.search_keybord_input);
-        tv_search = (TextView) findViewById(R.id.search_keybord_hint);
-        tv_search_empty_text = (TextView) findViewById(R.id.search_empty_text);
-        search_keybord_full_layout = (LinearLayout) findViewById(R.id.search_keybord_full_layout);
-        gv_search_result = (GridView) findViewById(R.id.search_result);
-        gv_search_result.setSelector(new ColorDrawable(Color.TRANSPARENT));
-    }
-
-    private void loadViewLayout() {
-
-    }
-
-    private void setListener() {
-        gv_search_result.setOnItemClickListener(new OnItemClickListener() {
-
+        mAdapter = new NetAdapter();
+        gv_result.setAdapter(mAdapter);
+        gv_result.setOnItemClickListener(new OnItemClickListener() {
             @Override
-            public void onItemClick(AdapterView<?> parent, View view,
-                                    int position, long id) {
-                Intent intent = new Intent(SearchActivity.this, VodDetailsActivity.class);
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                NetItem it = mAdapter.getItem(position);
+                Intent intent = new Intent(SearchActivity.this,
+                        com.shenma.tvlauncher.netsource.NetVodActivity.class);
                 intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                intent.putExtra("vodId", vodDatas.get(position).getId());
-                if (type.equals("ALL")) {
-                    intent.putExtra("vodtype", vodDatas.get(position).getType());
-                } else {
-                    intent.putExtra("vodtype", type);
-                }
-                intent.putExtra("nextlink", vodDatas.get(position).getNextlink());
+                intent.putExtra("openVodId", it.id);
+                intent.putExtra("presetSite", it.siteName);
                 startActivity(intent);
                 overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
             }
-
         });
-        gv_search_result.setOnScrollListener(new OnScrollListener() {
 
+        // 搜索按钮
+        findViewById(R.id.search_btn).setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onScrollStateChanged(AbsListView view, int scrollState) {
-                // TODO Auto-generated method stub
-
+            public void onClick(View v) {
+                mKeyword = search_input.getText().toString().trim();
+                mPage = 1;
+                doSearch();
             }
-
+        });
+        // IME 回车搜索
+        search_input.setOnEditorActionListener(new android.widget.TextView.OnEditorActionListener() {
             @Override
-            public void onScroll(AbsListView view, int firstVisibleItem,
-                                 int visibleItemCount, int totalItemCount) {
-                int i = totalItemCount - visibleItemCount;
-                if (firstVisibleItem < i) {
-                    //
-                    Logger.v("joychang", "<<<firstVisibleItem="
-                            + firstVisibleItem + ".....i=" + i);
-                    return;
-                } else {
-                    // 分页加载数据
-                    pageDown();
+            public boolean onEditorAction(android.widget.TextView v, int actionId, android.view.KeyEvent event) {
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                    mKeyword = search_input.getText().toString().trim();
+                    mPage = 1;
+                    doSearch();
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        // 翻页
+        findViewById(R.id.search_page_prev).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mPage > 1) {
+                    mPage--;
+                    doSearch();
+                }
+            }
+        });
+        findViewById(R.id.search_page_next).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mPage < mPageCount) {
+                    mPage++;
+                    doSearch();
                 }
             }
         });
 
-        gv_search_result.setOnItemSelectedListener(new OnItemSelectedListener() {
-
+        // 清空筛选
+        findViewById(R.id.clear_filter_btn).setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-//				if(position > lastIndex){//向下按
-//					Logger.i("joychang", "向下按position="+position+"....parent.getFirstVisiblePosition()="+parent.getFirstVisiblePosition()+"...lastIndex="+lastIndex+"后面条件="+(position < (parent.getCount()%6 == 0 ? parent.getCount()-6 : parent.getCount()-(parent.getCount()%6))));
-//					if((position-parent.getFirstVisiblePosition()) >= 4 && (position-lastIndex) == 4 && position < (parent.getCount()%4 == 0 ? parent.getCount()-4 : parent.getCount()-(parent.getCount()%4))){
-//						gv_search_result.post(new Runnable() {
-//							@Override
-//							public void run() {
-//								gv_search_result.smoothScrollBy(305, 500);
-//							}
-//						});
-//					}
-//				}else {//向上按
-//					Logger.i("joychang", "向上按position="+position+"....parent.getFirstVisiblePosition()="+parent.getFirstVisiblePosition()+"...lastIndex="+lastIndex);
-//					if((position-parent.getFirstVisiblePosition()) < 4 && (lastIndex-position) == 4 && parent.getFirstVisiblePosition() != 0){
-//						gv_search_result.post(new Runnable() {
-//							@Override
-//							public void run() {
-//								gv_search_result.smoothScrollBy(-305, 500);
-//							}
-//						});
-//					}
-//				}
-//				lastIndex = position;				
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> arg0) {
-                // TODO Auto-generated method stub
-
+            public void onClick(View v) {
+                mKeyword = "";
+                search_input.setText("");
+                mSelClass = mSelYear = mSelArea = 0;
+                mSelSort = 0;
+                updateColumnHighlight(mColClass, mSelClass);
+                updateColumnHighlight(mColYear, mSelYear);
+                updateColumnHighlight(mColArea, mSelArea);
+                updateColumnHighlight(mColSort, mSelSort);
+                mPage = 1;
+                doSearch();
             }
         });
+
+        // 构建筛选面板
+        buildFilterPanel();
+
+        // 首次加载
+        doSearch();
     }
 
-    private void initIntent() {
-        Intent intent = getIntent();
-        //VOD_TYPE = intent.getStringExtra("VOD_TYPE");
-        type = intent.getStringExtra("TYPE");
+    // ==================== 筛选面板 ====================
+
+    private void buildFilterPanel() {
+        mColClass = buildColumn("类型", FILTER_CLASS, mSelClass);
+        addDivider();
+        mColYear = buildColumn("年份", FILTER_YEAR, mSelYear);
+        addDivider();
+        mColArea = buildColumn("地区", FILTER_AREA, mSelArea);
+        addDivider();
+        mColSort = buildColumn("排序", FILTER_SORT, mSelSort);
     }
 
-    @Override
-    public void onClick(View v) {
-        // TODO Auto-generated method stub
+    private LinearLayout buildColumn(String title, final String[][] data, final int selectedIdx) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = (int) (getResources().getDisplayMetrics().density * 16);
+        lp.rightMargin = (int) (getResources().getDisplayMetrics().density * 16);
+        col.setLayoutParams(lp);
 
-    }
+        // 列标题
+        TextView header = new TextView(this);
+        header.setText(title);
+        header.setTextColor(Color.WHITE);
+        header.setTextSize(14);
+        header.setPadding(0, 0, 0, 6);
+        col.addView(header);
 
-    public void doClick(View target) {
-        int tag = target.getId();
-        if (tag == R.id.search_keybord_full_clear) {
-            StringBuilder nsb = new StringBuilder();
-            sb = nsb;
-            readyToSearch();
-            return;
-        }
-        if (tag == R.id.search_keybord_full_del) {
-            if (this.sb.length() <= 0) {
-            } else {
-                sb.deleteCharAt(sb.length() - 1);
-            }
-            readyToSearch();
-            return;
-        }
-        if (tag == R.id.search_keybord_sj) {
-            type = "TVPLAY";
-            readyToSearch();
-            return;
-        }
-        if (tag == R.id.search_keybord_sp) {
-            type = "MOVIE";
-            readyToSearch();
-            return;
-        }
-        Object obj = target.getTag();
-        sb.append(obj);
-        readyToSearch();
-    }
-
-    private void readyToSearch() {
-        String str = sb.toString();
-        search_keybord_input.setText(str);
-        Logger.v("joychang", "搜索====" + str);
-        SearchDatas(str);
-    }
-
-    /**
-     * 向下翻页
-     */
-    private void pageDown() {
-        Logger.v("joychang", "pageindex=" + pageindex + "....vodpageindex="
-                + vodpageindex);
-        if (pageindex >= totalpage || pageindex > vodpageindex)
-            return;
-        pageindex = this.pageindex + 1;
-        Logger.v("joychang", "请求页数===" + pageindex);
-        processLogic();
-    }
-
-    /**
-     * 获取视频列表
-     */
-    protected void processLogic() {
-        RequestVo vo = new RequestVo();
-        vo.context = context;
-        //vo.requestUrl = VOD_URL + "&page=" + pageindex + "&pagesize="+ PAGESIZE;
-        vo.requestUrl = VOD_URL;
-        Logger.v("joychang", "访问:::" + VOD_URL);
-        getDataFromServer(vo);
-    }
-
-    /**
-     * 搜索视频
-     */
-
-    protected void SearchDatas(String filter) {
-        RequestVo vo = new RequestVo();
-        vo.context = context;
-        vodDatas = null;
-        pageindex = 1;
-        VOD_URL = Constant.SEARCH_URL + filter + "-p-" + pageindex;
-        vo.requestUrl = VOD_URL;
-//		if(type.equals("MOVIE")||type.equals("DOCUMENTARY")||type.equals("TEACH")){
-//			VOD_URL = Constant.SEARCH_URL + filter + "-p-" + pageindex + "&pagesize="+ PAGESIZE;
-//			vo.requestUrl = VOD_URL;
-//			Logger.v("joychang", "访问:::" + Constant.VOD_TYPE+filter);
-//		}else if(type.equals("ALL")){
-//			VOD_URL = Constant.VOD_TYPE_ALL + filter + "&page=" + pageindex + "&pagesize="+ PAGESIZE;
-//			vo.requestUrl = VOD_URL;
-//			Logger.v("joychang", "访问:::" + Constant.VOD_TYPE_ALL+filter);
-//		}else{
-//			VOD_URL =Constant.VOD_TYPE_HAO123 + filter + "&page=" + pageindex + "&pagesize="+ PAGESIZE;
-//			vo.requestUrl = VOD_URL;
-//			Logger.v("joychang", "访问:::" + Constant.VOD_TYPE_HAO123+filter);
-//		}
-        Logger.d("joychang", "搜索VOD_URL=" + VOD_URL);
-        getDataFromServer(vo);
-    }
-
-    /**
-     * 从服务器上获取数据，并回调处理
-     *
-     * @param reqVo
-     */
-    protected void getDataFromServer(RequestVo reqVo) {
-        showProgressDialog();
-        mQueue = Volley.newRequestQueue(context, new HurlStack());
-        if (Utils.hasNetwork(context)) {
-            GsonRequest<VodTypeInfo> mVodData = new GsonRequest<VodTypeInfo>(Method.GET, reqVo.requestUrl,
-                    VodTypeInfo.class, createVodDataSuccessListener(), createVodDataErrorListener()) {
+        // 筛选项
+        for (int i = 0; i < data.length; i++) {
+            final int idx = i;
+            TextView item = new TextView(this);
+            item.setText(data[i][1]);
+            item.setTextSize(13);
+            item.setTextColor(i == selectedIdx ? 0xFF4FC3F7 : 0xFFB0B0B0);
+            item.setPadding(0, 4, 0, 4);
+            item.setFocusable(true);
+            item.setFocusableInTouchMode(true);
+            item.setOnClickListener(new View.OnClickListener() {
                 @Override
-                public Map<String, String> getHeaders()
-                        throws AuthFailureError {
-                    HashMap<String, String> headers = new HashMap<String, String>();
-                    String base64 = new String(android.util.Base64.encode(
-                            "admin:1234".getBytes(), android.util.Base64.DEFAULT));
-                    headers.put("Authorization", "Basic " + base64);
-                    return headers;
+                public void onClick(View v) {
+                    if (data == FILTER_CLASS) {
+                        mSelClass = idx;
+                        updateColumnHighlight(mColClass, idx);
+                    } else if (data == FILTER_YEAR) {
+                        mSelYear = idx;
+                        updateColumnHighlight(mColYear, idx);
+                    } else if (data == FILTER_AREA) {
+                        mSelArea = idx;
+                        updateColumnHighlight(mColArea, idx);
+                    } else if (data == FILTER_SORT) {
+                        mSelSort = idx;
+                        updateColumnHighlight(mColSort, idx);
+                    }
+                    mPage = 1;
+                    doSearch();
                 }
-            };
-            mQueue.add(mVodData);     //     执行
+            });
+            col.addView(item);
+        }
+
+        filter_columns.addView(col);
+        return col;
+    }
+
+    private void addDivider() {
+        View div = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT);
+        lp.leftMargin = (int) (getResources().getDisplayMetrics().density * 16);
+        lp.rightMargin = (int) (getResources().getDisplayMetrics().density * 16);
+        div.setLayoutParams(lp);
+        div.setBackgroundColor(0xFF2A3A4A);
+        filter_columns.addView(div);
+    }
+
+    private void updateColumnHighlight(LinearLayout col, int selectedIdx) {
+        if (col == null) return;
+        for (int i = 1; i < col.getChildCount(); i++) {
+            View child = col.getChildAt(i);
+            if (child instanceof TextView) {
+                ((TextView) child).setTextColor(i - 1 == selectedIdx ? 0xFF4FC3F7 : 0xFFB0B0B0);
+            }
         }
     }
 
-    //影视数据请求成功
-    private Response.Listener<VodTypeInfo> createVodDataSuccessListener() {
-        return new Response.Listener<VodTypeInfo>() {
-            @Override
-            public void onResponse(VodTypeInfo paramObject) {
-                // && null!=paramObject.getData()
-                if (null != paramObject && null != paramObject.getData() && paramObject.getData().size() > 0) {
-                    if (null != vodDatas && vodDatas.size() > 0) {
-                        vodtypeinfo = paramObject;
-                        ArrayList<VodDataInfo> vodDatalist = (ArrayList<VodDataInfo>) paramObject
-                                .getData();
-                        if (null != vodDatalist && vodDatalist.size() > 0) {
-                            vodDatas.addAll(vodDatalist);
-                            vodpageindex = paramObject.getPageindex();
-//    						vodpageindex = vodDatas.size() / PAGESIZE;
-                            searchtypeAdapter.changData(vodDatas);
-                        }
-                    } else {
-                        vodpageindex = 1;
-                        vodtypeinfo = paramObject;
-                        Logger.v("joychang",
-                                "vodtypeinfo" + vodtypeinfo.getPageindex() + "...."
-                                        + vodtypeinfo.getVideonum());
-                        totalpage = vodtypeinfo.getTotalpage();
-                        ArrayList<VodDataInfo> vodDatalist = (ArrayList<VodDataInfo>) paramObject
-                                .getData();
-                        if (null != vodDatalist && vodDatalist.size() > 0) {
-                            vodDatas = vodDatalist;
-                            searchtypeAdapter = new SearchTypeAdapter(context, vodDatas,
-                                    imageLoader);
-                            gv_search_result.setAdapter(searchtypeAdapter);
-                        }
-                    }
+    // ==================== 搜索 ====================
 
-                } else {
-                    Utils.showToast(context, "亲，没有搜索到相关内容！", R.drawable.toast_err);
-                    vodDatas = new ArrayList<VodDataInfo>();
-                    searchtypeAdapter = new SearchTypeAdapter(context, vodDatas,
-                            imageLoader);
-                    gv_search_result.setAdapter(searchtypeAdapter);
-                }
-                closeProgressDialog();
-            }
-        };
+    private String buildFilterParams() {
+        StringBuilder sb = new StringBuilder();
+        String cls = FILTER_CLASS[mSelClass][0];
+        if (cls.length() > 0) sb.append("&class=").append(cls);
+        String yr = FILTER_YEAR[mSelYear][0];
+        if (yr.length() > 0) sb.append("&year=").append(yr);
+        String area = FILTER_AREA[mSelArea][0];
+        if (area.length() > 0) sb.append("&area=").append(area);
+        String by = FILTER_SORT[mSelSort][0];
+        if (by.length() > 0) sb.append("&by=").append(by);
+        return sb.toString();
     }
 
-    //影视数据请求失败
-    private Response.ErrorListener createVodDataErrorListener() {
-        return new Response.ErrorListener() {
+    private void doSearch() {
+        if (mLoading) return;
+        showProgressDialog();
+        mLoading = true;
+        final int seq = ++mSearchSeq;
+        final String kw = mKeyword;
+        final int page = mPage;
+        final String filterParams = buildFilterParams();
+
+        new Thread(new Runnable() {
             @Override
-            public void onErrorResponse(VolleyError error) {
-                if (error instanceof TimeoutError) {
-                    Logger.e("joychang", "请求超时");
-                    Utils.showToast(context, getString(R.string.str_data_loading_error), R.drawable.toast_err);
-                    if (null != vodDatas && vodDatas.size() > 0) {
-                        vodpageindex = vodDatas.size() / PAGESIZE;
-                        pageindex = vodpageindex;
-                    } else {
-                        pageindex = 0;
+            public void run() {
+                final ArrayList<NetItem> out = new ArrayList<NetItem>();
+                int totalPage = 1;
+                try {
+                    ArrayList<TvBoxConfig.Site> sites = TvBoxConfig.getSites(context);
+                    if (sites != null) {
+                        for (int s = 0; s < sites.size(); s++) {
+                            TvBoxConfig.Site site = sites.get(s);
+                            try {
+                                StringBuilder url = new StringBuilder(site.api);
+                                url.append("?ac=videolist&pg=").append(page);
+                                if (kw != null && kw.length() > 0) {
+                                    url.append("&wd=").append(URLEncoder.encode(kw, "UTF-8"));
+                                }
+                                url.append(filterParams);
+
+                                JSONObject j = new JSONObject(TvBoxConfig.fetchText(url.toString(), 10000));
+                                totalPage = Math.max(totalPage, j.optInt("pagecount", 1));
+                                JSONArray list = j.optJSONArray("list");
+                                if (list != null) {
+                                    for (int i = 0; i < list.length(); i++) {
+                                        JSONObject v = list.optJSONObject(i);
+                                        if (v != null) {
+                                            out.add(NetItem.from(v, site.name));
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                Logger.w("joychang", "search site[" + site.name + "] failed: " + e);
+                            }
+                        }
                     }
-                } else if (error instanceof ParseError) {
-                    pageindex = 2;
-                    searchtypeAdapter.vodDatas.clear();
-                    searchtypeAdapter.notifyDataSetChanged();
-                    Utils.showToast(context, "亲，没有搜索到相关内容！", R.drawable.toast_err);
-                    Logger.e("joychang", "ParseError=" + error.toString());
-                } else if (error instanceof AuthFailureError) {
-                    Logger.e("joychang", "AuthFailureError=" + error.toString());
+                } catch (Exception e) {
                 }
-                closeProgressDialog();
+                final int fTotalPage = totalPage;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (seq != mSearchSeq) return;
+                        mLoading = false;
+                        closeProgressDialog();
+                        mPageCount = fTotalPage;
+                        tv_page_info.setText(mPage + "/" + mPageCount);
+
+                        if (out.isEmpty()) {
+                            if (page == 1) {
+                                mAdapter.clear();
+                                tv_empty.setVisibility(View.VISIBLE);
+                                tv_empty.setText("没有搜索到相关内容");
+                            }
+                            return;
+                        }
+                        if (page == 1) {
+                            mAdapter.setData(out);
+                        } else {
+                            mAdapter.addData(out);
+                        }
+                        tv_empty.setVisibility(View.GONE);
+                    }
+                });
             }
-        };
+        }, "net-search").start();
     }
 
-//    private Handler mHandler = new Handler(){
-//    	public void handleMessage(Message msg) {
-//    		switch (msg.what) {
-//			case REFRESH_ADAPTER:
-//				searchtypeAdapter.vodDatas.clear();
-//				searchtypeAdapter.notifyDataSetChanged();
-//				break;
-//
-//			default:
-//				break;
-//			}
-//    	};
-//    };
+    // ==================== Loading ====================
 
-    /**
-     * 显示提示框
-     */
     protected void showProgressDialog() {
         Utils.loadingShow_tv(SearchActivity.this, R.string.str_data_loading);
     }
 
-    /**
-     * 关闭提示框
-     */
     protected void closeProgressDialog() {
         Utils.loadingClose_Tv();
     }
 
-    /**
-     * @author joychang
-     * @class WindowMessageID
-     * @brief 内部消息ID定义类。
-     */
-    private class WindowMessageID {
-        /**
-         * @brief 服务请求成功。
-         */
-        public static final int SUCCESS = 0x00000001;
-        /**
-         * @brief 服务请求失败。
-         */
-        public static final int NET_FAILED = 0x00000002;
+    // ==================== Data Model ====================
+
+    static class NetItem {
+        String id, title, pic, state, siteName;
+
+        static NetItem from(JSONObject v, String siteName) {
+            NetItem it = new NetItem();
+            it.id = v.optString("vod_id");
+            it.title = v.optString("vod_name");
+            it.pic = v.optString("vod_pic");
+            it.siteName = siteName;
+            String remarks = v.optString("vod_remarks");
+            if (remarks == null || remarks.length() == 0) {
+                remarks = v.optString("vod_state");
+            }
+            it.state = remarks;
+            return it;
+        }
     }
 
-    protected ImageLoader imageLoader = ImageLoader.getInstance();
-    private ArrayList<VodDataInfo> vodDatas;
-    private VodTypeInfo vodtypeinfo;
-    private SearchTypeAdapter searchtypeAdapter;
-    private int pageindex = 1;
-    private int vodpageindex;
-    private int totalpage;
-    private final static int PAGESIZE = 30;
-    private String type = null;
-    //	private String VOD_TYPE = "http://api.lsott.com/app/app.php?nozzle=character&zm=";
-//	private String VOD_TYPE_HAO123 = "http://api.lsott.com/app/?nozzle=character&zm=";
-    private String VOD_URL = null;
-    private EditText search_keybord_input;
-    private TextView tv_search, tv_search_empty_text;
-    private LinearLayout search_keybord_full_layout;
-    private GridView gv_search_result;
-    private StringBuilder sb;
-    private Context context;
-    private RequestQueue mQueue;
-    private int lastIndex = -1;
-    private static final int REFRESH_ADAPTER = 0x000000001;
+    // ==================== Adapter ====================
+
+    private class NetAdapter extends BaseAdapter {
+        private final ArrayList<NetItem> data = new ArrayList<NetItem>();
+        private final LayoutInflater inflater;
+        private final DisplayImageOptions options;
+
+        NetAdapter() {
+            inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            options = new DisplayImageOptions.Builder()
+                    .showStubImage(R.drawable.default_film_img)
+                    .showImageForEmptyUri(R.drawable.default_film_img)
+                    .showImageOnFail(R.drawable.default_film_img)
+                    .resetViewBeforeLoading(true)
+                    .cacheInMemory(true)
+                    .cacheOnDisc(true)
+                    .imageScaleType(ImageScaleType.EXACTLY)
+                    .bitmapConfig(Bitmap.Config.RGB_565)
+                    .displayer(new FadeInBitmapDisplayer(300))
+                    .build();
+        }
+
+        void setData(ArrayList<NetItem> items) {
+            data.clear();
+            data.addAll(items);
+            notifyDataSetChanged();
+        }
+
+        void addData(ArrayList<NetItem> items) {
+            data.addAll(items);
+            notifyDataSetChanged();
+        }
+
+        void clear() {
+            data.clear();
+            notifyDataSetChanged();
+        }
+
+        @Override
+        public int getCount() { return data.size(); }
+
+        @Override
+        public NetItem getItem(int position) { return data.get(position); }
+
+        @Override
+        public long getItemId(int position) { return position; }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            ViewHolder holder;
+            if (convertView == null) {
+                convertView = inflater.inflate(R.layout.mv_type_details_item, null);
+                holder = new ViewHolder();
+                holder.poster = (ImageView) convertView.findViewById(R.id.video_poster);
+                holder.state = (TextView) convertView.findViewById(R.id.video_state);
+                holder.name = (TextView) convertView.findViewById(R.id.video_name);
+                convertView.setTag(holder);
+            } else {
+                holder = (ViewHolder) convertView.getTag();
+            }
+            NetItem it = data.get(position);
+            imageLoader.displayImage(it.pic, holder.poster, options);
+            holder.name.setText(it.title);
+            holder.state.setText(it.state);
+            return convertView;
+        }
+
+        class ViewHolder {
+            ImageView poster;
+            TextView state, name;
+        }
+    }
+
+    private ImageLoader imageLoader = ImageLoader.getInstance();
 }

@@ -1,5 +1,6 @@
 package com.shenma.tvlauncher.netsource;
 
+import java.net.URLEncoder;
 import java.util.ArrayList;
 
 import org.json.JSONArray;
@@ -68,7 +69,9 @@ public class NetVodActivity extends Activity {
 
 	private String mPresetCat = "";// 入口预设分类关键词（如 电影/电视剧），匹配不到则回退"全部"
 
-	private String mOpenVodId = null;// 入口指定影片 id（首页推荐位），列表加载后自动打开详情
+	private String mPresetSite = null;// 入口预设站点名（搜索结果跳转），按名字选中对应站点
+
+	private String mOpenVodId = null;// 入口指定影片 id（首页推荐位/搜索结果），自动打开详情
 
 	private LruCache<String, Bitmap> mPicCache = new LruCache<String, Bitmap>(64);
 	private Handler mUi = new Handler();
@@ -85,6 +88,7 @@ public class NetVodActivity extends Activity {
 		if (ovi != null) {
 			mOpenVodId = ovi;
 		}
+		mPresetSite = getIntent().getStringExtra("presetSite");
 		findViews();
 		mAdapter = new GridAdapter();
 		mGrid.setAdapter(mAdapter);
@@ -143,7 +147,22 @@ public class NetVodActivity extends Activity {
 							return;
 						}
 						buildSiteRow();
-						selectSite(0);
+						int startIdx = 0;
+						if (mPresetSite != null) {
+							for (int i = 0; i < sites.size(); i++) {
+								if (sites.get(i).name.equals(mPresetSite)) {
+									startIdx = i;
+									break;
+								}
+							}
+						}
+						selectSite(startIdx);
+						// 搜索结果直达：不依赖列表页，直接按 id 拉详情打开面板
+						if (mPresetSite != null && mOpenVodId != null) {
+							String id = mOpenVodId;
+							mOpenVodId = null;
+							openDetailById(id);
+						}
 					}
 				});
 			}
@@ -343,7 +362,11 @@ public class NetVodActivity extends Activity {
 					body += "&t=" + typeId;
 				}
 				if (kw != null && kw.length() > 0) {
-					body += "&wd=" + kw;
+					try {
+						body += "&wd=" + URLEncoder.encode(kw, "UTF-8");
+					} catch (Exception e) {
+						body += "&wd=" + kw;
+					}
 				}
 				JSONArray list = null;
 				int pc = 1;
@@ -437,6 +460,50 @@ public class NetVodActivity extends Activity {
 				});
 			}
 		}, "tvbox-detail").start();
+	}
+
+	/** 按影片 id 直接打开详情面板（搜索跳转，目标片可能不在当前列表页） */
+	private void openDetailById(final String vodId) {
+		mVodId = vodId;
+		mVodName = "";
+		mVodPic = "";
+		mDetailPanel.setVisibility(View.VISIBLE);
+		mDetailName.setText("加载中...");
+		mDetailMeta.setText("");
+		mDetailIntro.setText("");
+		mLineRow.removeAllViews();
+		mEpisodes.removeAllViews();
+		final String api = mSites.get(mSiteIdx).api;
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				JSONObject detail = null;
+				try {
+					String body = api + "?ac=videolist&ids=" + vodId;
+					JSONObject j = new JSONObject(TvBoxConfig.fetchText(body, 15000));
+					JSONArray list = j.optJSONArray("list");
+					if (list != null && list.length() > 0) {
+						detail = list.optJSONObject(0);
+					}
+				} catch (Exception e) {
+				}
+				final JSONObject fDetail = detail;
+				mUi.post(new Runnable() {
+					@Override
+					public void run() {
+						if (fDetail == null) {
+							mDetailName.setText("详情加载失败");
+							return;
+						}
+						mVodName = fDetail.optString("vod_name");
+						mVodPic = fDetail.optString("vod_pic");
+						mDetailName.setText(mVodName);
+						loadPic(mVodPic, mDetailPic);
+						showDetail(fDetail);
+					}
+				});
+			}
+		}, "tvbox-detail-direct").start();
 	}
 
 	private void showDetail(JSONObject detail) {
