@@ -23,8 +23,8 @@ jobs:
       # 解密JKS密钥到根目录
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > shenma.jks
-      # 编译，生成未签名release包
-      - name: Build unsigned release APK
+      # 编译release包
+      - name: Build release APK
         run: |
           ./gradlew clean
           ./gradlew assembleRelease
@@ -36,20 +36,23 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
-          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          UNSIGNED_APK="app/build/outputs/apk/release/app-release.apk"
+          ALIGNED_APK="app/build/outputs/apk/release/app-release-aligned.apk"
           SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
           
-          "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED_APK" "$SIGNED_APK"
+          "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED_APK" "$ALIGNED_APK"
           
           "$BUILD_TOOLS/apksigner" sign \
             --ks shenma.jks \
             --ks-pass pass:$KEYSTORE_PASSWORD \
             --key-pass pass:$KEY_PASSWORD \
             --ks-key-alias $KEY_ALIAS \
-            --out "$SIGNED_APK" "$SIGNED_APK"
-      # 查找所有apk
+            --out "$SIGNED_APK" "$ALIGNED_APK"
+      # 查找所有apk，增加ls查看目录内容，方便调试
       - name: Find all APK files
-        run: find . -name "*.apk"
+        run: |
+          find . -name "*.apk"
+          ls -la app/build/outputs/apk/release/
       # 上传【已签名】的apk
       - name: Upload Signed APK
         uses: actions/upload-artifact@v6
