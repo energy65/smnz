@@ -2,158 +2,118 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:background="#0a1628"
-    android:orientation="vertical">
+    android:background="@drawable/video_details_bg" >
 
-    <!-- Header -->
     <LinearLayout
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingLeft="@dimen/sm_20"
-        android:paddingRight="@dimen/sm_20"
-        android:paddingTop="@dimen/sm_12"
-        android:paddingBottom="@dimen/sm_8">
-
-        <View
-            android:layout_width="4dp"
-            android:layout_height="@dimen/sm_22"
-            android:layout_marginRight="@dimen/sm_10"
-            android:background="#4FC3F7" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="搜索"
-            android:textColor="#ffffff"
-            android:textSize="@dimen/sm_24" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
-        <TextView
-            android:id="@+id/search_page_info"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#708090"
-            android:textSize="@dimen/sm_16"
-            android:layout_marginRight="@dimen/sm_12" />
+        android:layout_width="@dimen/sm_400"
+        android:layout_height="fill_parent"
+        android:background="@drawable/member_left_background"
+        android:orientation="vertical"
+        android:paddingBottom="@dimen/sm_40"
+        android:paddingLeft="@dimen/sm_30"
+        android:paddingRight="@dimen/sm_40"
+        android:paddingTop="@dimen/sm_40" >
 
         <EditText
             android:id="@+id/search_keybord_input"
-            android:layout_width="@dimen/sm_280"
-            android:layout_height="@dimen/sm_36"
-            android:background="#1a2a3a"
-            android:hint="输入片名搜索"
-            android:textColorHint="#506070"
-            android:textColor="#ffffff"
+            android:layout_width="@dimen/sm_320"
+            android:layout_height="@dimen/sm_50"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="@dimen/sm_10"
+            android:background="@drawable/so_box"
+            android:ellipsize="start"
+            android:focusable="true"
+            android:gravity="center_vertical"
             android:singleLine="true"
-            android:paddingLeft="@dimen/sm_10"
-            android:paddingRight="@dimen/sm_10"
-            android:textSize="@dimen/sm_18"
-            android:imeOptions="actionSearch"
-            android:inputType="text" />
+            android:textColor="#ff000000"
+            android:textSize="@dimen/sm_36" />
 
-        <Button
-            android:id="@+id/search_btn"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/sm_36"
-            android:text="搜索"
-            android:textColor="#ffffff"
-            android:background="#2a4060"
-            android:layout_marginLeft="@dimen/sm_6"
-            android:minWidth="0dp"
-            android:paddingLeft="@dimen/sm_14"
-            android:paddingRight="@dimen/sm_14"
-            android:textSize="@dimen/sm_18" />
+        <FrameLayout
+            android:layout_width="fill_parent"
+            android:layout_height="0.0px"
+            android:layout_weight="1.0" >
 
-        <Button
-            android:id="@+id/search_page_prev"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/sm_36"
-            android:text="上一页"
-            android:textColor="#b0b0b0"
-            android:background="#1a2a3a"
-            android:layout_marginLeft="@dimen/sm_6"
-            android:minWidth="0dp"
-            android:paddingLeft="@dimen/sm_12"
-            android:paddingRight="@dimen/sm_12"
-            android:textSize="@dimen/sm_16" />
+            <include
+                android:id="@+id/search_keybord_full_layout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                layout="@layout/mv_search_keybord_full" />
+        </FrameLayout>
 
-        <Button
-            android:id="@+id/search_page_next"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/sm_36"
-            android:text="下一页"
-            android:textColor="#b0b0b0"
-            android:background="#1a2a3a"
-            android:layout_marginLeft="@dimen/sm_6"
-            android:minWidth="0dp"
-            android:paddingLeft="@dimen/sm_12"
-            android:paddingRight="@dimen/sm_12"
-            android:textSize="@dimen/sm_16" />
-
-        <Button
-            android:id="@+id/clear_filter_btn"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/sm_36"
-            android:text="清空筛选"
-            android:textColor="#b0b0b0"
-            android:background="#1a2a3a"
-            android:layout_marginLeft="@dimen/sm_6"
-            android:minWidth="0dp"
-            android:paddingLeft="@dimen/sm_14"
-            android:paddingRight="@dimen/sm_14"
-            android:textSize="@dimen/sm_16" />
-    </LinearLayout>
-
-    <!-- Results Grid -->
-    <GridView
-        android:id="@+id/search_result"
-        android:layout_width="fill_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:numColumns="6"
-        android:paddingLeft="@dimen/sm_20"
-        android:paddingRight="@dimen/sm_20"
-        android:horizontalSpacing="@dimen/sm_8"
-        android:verticalSpacing="@dimen/sm_10"
-        android:scrollbars="none"
-        android:focusableInTouchMode="true" />
-
-    <!-- Empty / hint text -->
-    <TextView
-        android:id="@+id/search_empty_text"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="输入片名或选择下方筛选条件搜索"
-        android:textColor="#506070"
-        android:textSize="@dimen/sm_18"
-        android:padding="@dimen/sm_8" />
-
-    <!-- Filter Panel -->
-    <HorizontalScrollView
-        android:id="@+id/filter_panel"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:background="#CC000000"
-        android:scrollbars="none"
-        android:fillViewport="true">
-
-        <LinearLayout
-            android:id="@+id/filter_columns"
+        <TextView
+            android:id="@+id/search_keybord_hint"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingLeft="@dimen/sm_20"
-            android:paddingRight="@dimen/sm_20"
-            android:paddingTop="@dimen/sm_10"
-            android:paddingBottom="@dimen/sm_10" />
+            android:layout_gravity="center_horizontal"
+            android:text="选择拼音首字母速查，如《太极》TJ"
+            android:textColor="@color/detail_point"
+            android:textSize="@dimen/sm_18" />
+    </LinearLayout>
 
-    </HorizontalScrollView>
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent"
+        android:orientation="vertical" >
+
+        <LinearLayout
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="@dimen/sm_25"
+            android:layout_marginTop="@dimen/sm_10"
+            android:orientation="horizontal" >
+
+            <ImageView
+                android:id="@+id/type_details_type"
+                android:layout_width="@dimen/sm_150"
+                android:layout_height="@dimen/sm_80"
+                android:src="@drawable/vod_search" />
+
+            <ImageView
+                android:layout_width="@dimen/sm_10"
+                android:layout_height="@dimen/sm_80"
+                android:layout_marginRight="@dimen/sm_5"
+                android:src="@drawable/vod_line35" />
+
+            <LinearLayout
+                android:id="@+id/search_top_tables"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" >
+            </LinearLayout>
+        </LinearLayout>
+
+        <ImageView
+            android:layout_width="fill_parent"
+            android:layout_height="@dimen/sm_5"
+            android:layout_gravity="center_vertical"
+            android:layout_marginBottom="@dimen/sm_5"
+            android:layout_marginLeft="@dimen/sm_35"
+            android:layout_marginRight="@dimen/sm_35"
+            android:layout_marginTop="@dimen/sm_5"
+            android:scaleType="fitXY"
+            android:src="@drawable/vod_line761" />
+
+        <GridView
+            android:id="@+id/search_result"
+            android:layout_width="fill_parent"
+            android:layout_height="0px"
+            android:layout_weight="1"
+            android:layout_marginLeft="@dimen/sm_30"
+            android:layout_marginRight="@dimen/sm_35"
+            android:focusableInTouchMode="true"
+            android:numColumns="4"
+            android:scrollbars="none"
+            android:verticalSpacing="@dimen/sm_20" />
+
+        <TextView
+            android:id="@+id/search_empty_text"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:layout_marginTop="@dimen/sm_20"
+            android:text="输入片名搜索"
+            android:textColor="#ffffffff"
+            android:textSize="@dimen/sm_30" />
+    </LinearLayout>
 
 </LinearLayout>
