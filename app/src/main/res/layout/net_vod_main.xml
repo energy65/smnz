@@ -64,34 +64,54 @@
                 android:paddingLeft="12dp"
                 android:paddingRight="12dp"
                 android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/net_menu_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="菜单"
+                android:textColor="#FFFFFFFF"
+                android:background="#FF2A313D"
+                android:layout_marginLeft="4dp"
+                android:minWidth="0dp"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- 站点行 -->
-        <HorizontalScrollView
+        <!-- 筛选面板（默认隐藏，点击菜单切换） -->
+        <LinearLayout
+            android:id="@+id/net_filter_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:scrollbars="none" >
+            android:orientation="vertical"
+            android:visibility="gone" >
 
-            <LinearLayout
-                android:id="@+id/net_site_row"
-                android:layout_width="wrap_content"
+            <HorizontalScrollView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
+                android:scrollbars="none" >
 
-        <!-- 分类行 -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:scrollbars="none" >
+                <LinearLayout
+                    android:id="@+id/net_site_row"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
 
-            <LinearLayout
-                android:id="@+id/net_cat_row"
-                android:layout_width="wrap_content"
+            <HorizontalScrollView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
+                android:layout_marginTop="4dp"
+                android:scrollbars="none" >
+
+                <LinearLayout
+                    android:id="@+id/net_cat_row"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+        </LinearLayout>
 
         <!-- 海报网格（6列） -->
         <GridView
