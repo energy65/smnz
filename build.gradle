@@ -1,18 +1,23 @@
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
     repositories {
         google()
         mavenCentral()
     }
+    dependencies {
+        // AGP 8.7.x 要求 Gradle >= 8.9，运行需 JDK 17+
+        classpath 'com.android.tools.build:gradle:8.7.3'
+    }
 }
-rootProject.name = "smnz"
-include ':app'
-include ':xwalkvideoplayer'
-include ':xwalk_core_library'
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
