@@ -12,15 +12,6 @@ buildscript {
     }
 }
 
-allprojects {
-    repositories {
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
-        google()
-        mavenCentral()
-    }
-}
-
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
