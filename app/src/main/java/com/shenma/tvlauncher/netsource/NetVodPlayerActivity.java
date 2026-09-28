@@ -196,7 +196,7 @@ public class NetVodPlayerActivity extends Activity implements
 	}
 
 	@Override
-	public void onPrePared() {
+	public void onPrepared() {
 		mPrepared = true;
 		mLoading.setVisibility(View.GONE);
 		if (mPendingSeek > 0) {
