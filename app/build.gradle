@@ -1,0 +1,56 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.shenma.tvlauncher'
+    compileSdk 35
+
+    signingConfigs {
+        release {
+            storeFile file('smtv.jks')
+            storePassword 'smtv2026'
+            keyAlias 'key0'
+            keyPassword 'smtv2026'
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.shenma.tvlauncher"
+        minSdkVersion 21
+        targetSdkVersion 21
+        versionCode 116
+        versionName '1.4.2'
+        ndk {
+            // TV 盒子以 32 位为主，且 cyberplayer 仅提供 armeabi-v7a
+            abiFilters 'armeabi-v7a'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-project.txt'
+        }
+    }
+
+    // 老代码（VideoPlayerActivity）仍在使用 Apache HTTP API
+    useLibrary 'org.apache.http.legacy'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation 'com.android.support:support-v4:21.0.3'
+    implementation 'com.google.code.gson:gson:2.2.4'
+    implementation project(':xwalk_core_library')
+    implementation project(':xwalkvideoplayer')
+}

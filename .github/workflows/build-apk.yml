@@ -1,0 +1,76 @@
+name: Build APK
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  construction:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools build-tools;34.0.0 platforms;android-34
+
+      - name: Download and install Gradle
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip -O gradle.zip
+          unzip -q gradle.zip
+          rm gradle.zip
+          echo "$PWD/gradle-8.2/bin" >> $GITHUB_PATH
+
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 解密JKS密钥到根目录
+      - name: Decode Keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > shenma.jks
+
+      # 编译，生成未签名release包
+      - name: Build unsigned release APK
+        run: |
+          ./gradlew clean
+          ./gradlew assembleRelease
+
+      # 固定build-tools路径，手动apksigner签名
+      - name: Sign APK manually
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
+          
+          "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED_APK" "$SIGNED_APK"
+          
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks shenma.jks \
+            --ks-pass pass:$KEYSTORE_PASSWORD \
+            --key-pass pass:$KEY_PASSWORD \
+            --ks-key-alias $KEY_ALIAS \
+            --out "$SIGNED_APK" "$SIGNED_APK"
+
+      # 查找所有apk
+      - name: Find all APK files
+        run: find . -name "*.apk"
+
+      # 上传【已签名】的apk
+      - name: Upload Signed APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: ShenmaAPP-v3.7.11-release
+          path: app/build/outputs/apk/release/app-release-signed.apk
