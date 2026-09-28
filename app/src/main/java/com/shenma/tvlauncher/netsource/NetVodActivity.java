@@ -47,7 +47,7 @@ public class NetVodActivity extends Activity {
 
 	private LinearLayout mSiteRow, mCatRow, mLineRow, mEpisodes;
 	private GridView mGrid;
-	private TextView mPageInfo, mLoading, mDetailName, mDetailMeta, mDetailIntro;
+	private TextView mPageInfo, mLoading, mDetailName, mDetailMeta, mDetailIntro, mTitle;
 	private ImageView mDetailPic;
 	private View mDetailPanel;
 	private EditText mSearchInput;
@@ -183,6 +183,10 @@ public class NetVodActivity extends Activity {
 		mDetailIntro = (TextView) findViewById(R.id.net_detail_intro);
 		mDetailPic = (ImageView) findViewById(R.id.net_detail_pic);
 		mSearchInput = (EditText) findViewById(R.id.net_search_input);
+		mTitle = (TextView) findViewById(R.id.net_title);
+		if (mPresetCat != null && mPresetCat.length() > 0) {
+			mTitle.setText(mPresetCat);
+		}
 	}
 
 	private void setBtn(int id, View.OnClickListener l) {

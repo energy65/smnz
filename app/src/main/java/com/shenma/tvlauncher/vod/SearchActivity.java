@@ -192,7 +192,7 @@ public class SearchActivity extends Activity {
     }
 
     /**
-     * 搜索逻辑：
+     * 搜索逻辑（并行查询所有 CMS 站点，总超时 12 秒）：
      * - 中文关键词：逐站点 wd= 搜索
      * - 字母/数字：逐站点用 &letter= 首字母 让服务端过滤，再本地 matchLetter 精筛多字母组合
      */
@@ -205,76 +205,37 @@ public class SearchActivity extends Activity {
         final int seq = ++mSearchSeq;
         final String kw = keyword;
         final int page = mPage;
+        final boolean isHan = mSearchingHan;
 
         new Thread(new Runnable() {
             @Override
             public void run() {
                 final ArrayList<NetItem> out = new ArrayList<NetItem>();
-                int totalPage = 1;
+                final int[] totalPage = {1};
                 try {
                     ArrayList<TvBoxConfig.Site> sites = TvBoxConfig.getSites(context);
-                    if (sites != null) {
-                        for (int s = 0; s < sites.size(); s++) {
-                            TvBoxConfig.Site site = sites.get(s);
-                            if (mSearchingHan) {
-                                // 中文：逐站点 wd 搜索
-                                try {
-                                    String url = site.api + "?ac=videolist&wd="
-                                            + URLEncoder.encode(kw, "UTF-8");
-                                    JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 10000));
-                                    JSONArray list = j.optJSONArray("list");
-                                    if (list != null) {
-                                        for (int i = 0; i < list.length(); i++) {
-                                            JSONObject v = list.optJSONObject(i);
-                                            if (v != null) out.add(NetItem.from(v, site.name));
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    Logger.w("joychang", "search site[" + site.name + "] failed: " + e);
-                                }
-                            } else {
-                                // 字母速查：用 CMS letter 参数让服务端按首字母过滤
-                                // letter 只支持单字母，多字母组合(如 TJ) 在本地 matchLetter 精筛
-                                try {
-                                    String url = site.api + "?ac=videolist&pg=" + page
-                                            + "&letter=" + URLEncoder.encode(kw.substring(0, 1), "UTF-8");
-                                    JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 10000));
-                                    totalPage = Math.max(totalPage, j.optInt("pagecount", 1));
-                                    JSONArray list = j.optJSONArray("list");
-                                    if (list != null) {
-                                        for (int i = 0; i < list.length(); i++) {
-                                            JSONObject v = list.optJSONObject(i);
-                                            if (v == null) continue;
-                                            // 单字母直接收；多字母本地精筛
-                                            if (kw.length() <= 1 || matchLetter(v, kw)) {
-                                                out.add(NetItem.from(v, site.name));
-                                            }
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    Logger.w("joychang", "letter site[" + site.name + "] failed: " + e);
-                                    // letter 参数失败时回退：无 letter 取最新列表本地过滤
+                    if (sites != null && !sites.isEmpty()) {
+                        int n = sites.size();
+                        java.util.concurrent.CountDownLatch latch =
+                                new java.util.concurrent.CountDownLatch(n);
+                        for (int s = 0; s < n; s++) {
+                            final TvBoxConfig.Site site = sites.get(s);
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
                                     try {
-                                        String url = site.api + "?ac=videolist&pg=" + page;
-                                        JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 10000));
-                                        totalPage = Math.max(totalPage, j.optInt("pagecount", 1));
-                                        JSONArray list = j.optJSONArray("list");
-                                        if (list != null) {
-                                            for (int i = 0; i < list.length(); i++) {
-                                                JSONObject v = list.optJSONObject(i);
-                                                if (v == null) continue;
-                                                if (matchLetter(v, kw)) {
-                                                    out.add(NetItem.from(v, site.name));
-                                                }
-                                            }
-                                        }
-                                    } catch (Exception e2) {}
+                                        queryOneSite(site, kw, page, isHan, out, totalPage);
+                                    } catch (Exception e) {
+                                    } finally {
+                                        latch.countDown();
+                                    }
                                 }
-                            }
+                            }).start();
                         }
+                        latch.await(12, java.util.concurrent.TimeUnit.SECONDS);
                     }
                 } catch (Exception e) {}
-                final int fTotalPage = totalPage;
+                final int fTotalPage = totalPage[0];
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -297,6 +258,64 @@ public class SearchActivity extends Activity {
                 });
             }
         }, "net-search").start();
+    }
+
+    /** 查询单个站点（在工作线程中调用，结果同步合并到 out） */
+    private void queryOneSite(TvBoxConfig.Site site, String kw, int page,
+            boolean isHan, ArrayList<NetItem> out, int[] totalPage) {
+        ArrayList<NetItem> siteResults = new ArrayList<NetItem>();
+        int sitePages = 1;
+        try {
+            if (isHan) {
+                String url = site.api + "?ac=videolist&wd=" + URLEncoder.encode(kw, "UTF-8");
+                JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 6000));
+                JSONArray list = j.optJSONArray("list");
+                if (list != null) {
+                    for (int i = 0; i < list.length(); i++) {
+                        JSONObject v = list.optJSONObject(i);
+                        if (v != null) siteResults.add(NetItem.from(v, site.name));
+                    }
+                }
+            } else {
+                try {
+                    String url = site.api + "?ac=videolist&pg=" + page
+                            + "&letter=" + URLEncoder.encode(kw.substring(0, 1), "UTF-8");
+                    JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 6000));
+                    sitePages = j.optInt("pagecount", 1);
+                    JSONArray list = j.optJSONArray("list");
+                    if (list != null) {
+                        for (int i = 0; i < list.length(); i++) {
+                            JSONObject v = list.optJSONObject(i);
+                            if (v == null) continue;
+                            if (kw.length() <= 1 || matchLetter(v, kw)) {
+                                siteResults.add(NetItem.from(v, site.name));
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    // letter 参数失败时回退：无 letter 取最新列表本地过滤
+                    String url = site.api + "?ac=videolist&pg=" + page;
+                    JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 6000));
+                    sitePages = j.optInt("pagecount", 1);
+                    JSONArray list = j.optJSONArray("list");
+                    if (list != null) {
+                        for (int i = 0; i < list.length(); i++) {
+                            JSONObject v = list.optJSONObject(i);
+                            if (v == null) continue;
+                            if (matchLetter(v, kw)) {
+                                siteResults.add(NetItem.from(v, site.name));
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Logger.w("joychang", "site[" + site.name + "] failed: " + e);
+        }
+        synchronized (out) {
+            out.addAll(siteResults);
+            if (sitePages > totalPage[0]) totalPage[0] = sitePages;
+        }
     }
 
     /** 是否含中文 */

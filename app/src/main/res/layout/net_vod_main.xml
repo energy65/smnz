@@ -10,6 +10,63 @@
         android:orientation="vertical"
         android:padding="8dp" >
 
+        <!-- Header: 标题 + 搜索 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:layout_marginBottom="6dp" >
+
+            <View
+                android:layout_width="4dp"
+                android:layout_height="22dp"
+                android:layout_marginRight="8dp"
+                android:background="#FF4FC3F7" />
+
+            <TextView
+                android:id="@+id/net_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="点播"
+                android:textColor="#FFFFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <EditText
+                android:id="@+id/net_search_input"
+                android:layout_width="160dp"
+                android:layout_height="34dp"
+                android:background="#FF1A2A3A"
+                android:hint="输入影片名搜索"
+                android:textColor="#FFFFFFFF"
+                android:textColorHint="#FF506070"
+                android:textSize="13sp"
+                android:singleLine="true"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:imeOptions="actionSearch" />
+
+            <Button
+                android:id="@+id/net_search_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="搜索"
+                android:textColor="#FFFFFFFF"
+                android:background="#FF2A4060"
+                android:layout_marginLeft="4dp"
+                android:minWidth="0dp"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- 站点行 -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -22,6 +79,7 @@
                 android:orientation="horizontal" />
         </HorizontalScrollView>
 
+        <!-- 分类行 -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -35,42 +93,19 @@
                 android:orientation="horizontal" />
         </HorizontalScrollView>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:orientation="horizontal" >
-
-            <EditText
-                android:id="@+id/net_search_input"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="输入影片名搜索"
-                android:textColor="#FFFFFFFF"
-                android:textColorHint="#FF666B76"
-                android:textSize="14sp"
-                android:singleLine="true" />
-
-            <Button
-                android:id="@+id/net_search_btn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="搜索"
-                android:textSize="14sp" />
-        </LinearLayout>
-
+        <!-- 海报网格（6列） -->
         <GridView
             android:id="@+id/net_vod_grid"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:layout_marginTop="4dp"
-            android:numColumns="5"
-            android:horizontalSpacing="8dp"
+            android:numColumns="6"
+            android:horizontalSpacing="6dp"
             android:verticalSpacing="8dp"
             android:scrollbars="none" />
 
+        <!-- 翻页 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -81,9 +116,14 @@
             <Button
                 android:id="@+id/net_page_prev"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="34dp"
                 android:text="上一页"
-                android:textSize="14sp" />
+                android:textColor="#FFB0B0B0"
+                android:background="#FF1A2A3A"
+                android:textSize="13sp"
+                android:minWidth="0dp"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp" />
 
             <TextView
                 android:id="@+id/net_page_info"
@@ -92,15 +132,20 @@
                 android:layout_marginLeft="16dp"
                 android:layout_marginRight="16dp"
                 android:text="1 / 1"
-                android:textColor="#FFFFFFFF"
-                android:textSize="14sp" />
+                android:textColor="#FF88909C"
+                android:textSize="13sp" />
 
             <Button
                 android:id="@+id/net_page_next"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="34dp"
                 android:text="下一页"
-                android:textSize="14sp" />
+                android:textColor="#FFB0B0B0"
+                android:background="#FF1A2A3A"
+                android:textSize="13sp"
+                android:minWidth="0dp"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp" />
         </LinearLayout>
     </LinearLayout>
 
