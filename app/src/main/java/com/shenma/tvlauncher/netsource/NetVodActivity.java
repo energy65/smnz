@@ -66,6 +66,8 @@ public class NetVodActivity extends Activity {
 
 	private int mListSeq = 0, mCatSeq = 0;
 
+	private String mPresetCat = "";// 入口预设分类关键词（如 电影/电视剧），匹配不到则回退"全部"
+
 	private LruCache<String, Bitmap> mPicCache = new LruCache<String, Bitmap>(64);
 	private Handler mUi = new Handler();
 
@@ -73,6 +75,10 @@ public class NetVodActivity extends Activity {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.net_vod_main);
+		String pc = getIntent().getStringExtra("presetCat");
+		if (pc != null) {
+			mPresetCat = pc;
+		}
 		findViews();
 		mAdapter = new GridAdapter();
 		mGrid.setAdapter(mAdapter);
@@ -228,13 +234,15 @@ public class NetVodActivity extends Activity {
 					return;
 				}
 				final ArrayList<String[]> fCats = catList;
+				final int fActiveIdx = presetCatIndex(catList);
 				mUi.post(new Runnable() {
 					@Override
 					public void run() {
 						if (seq != mCatSeq) {
 							return;
 						}
-						buildCatRow(fCats);
+						mTypeName = fCats.get(fActiveIdx)[1];
+						buildCatRow(fCats, fActiveIdx);
 						loadList();
 					}
 				});
@@ -242,11 +250,11 @@ public class NetVodActivity extends Activity {
 		}, "tvbox-cats").start();
 	}
 
-	private void buildCatRow(final ArrayList<String[]> cats) {
+	private void buildCatRow(final ArrayList<String[]> cats, int activeIdx) {
 		mCatRow.removeAllViews();
 		for (int i = 0; i < cats.size(); i++) {
 			final int idx = i;
-			Button b = makeChip(cats.get(i)[1], i == 0);
+			Button b = makeChip(cats.get(i)[1], i == activeIdx);
 			b.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
@@ -289,6 +297,27 @@ public class NetVodActivity extends Activity {
 			}
 		}
 		return "";
+	}
+
+	/** 按入口预设关键词匹配分类下标（含别名回退），匹配不到返回 0（全部） */
+	private int presetCatIndex(ArrayList<String[]> cats) {
+		if (mPresetCat.length() == 0) {
+			return 0;
+		}
+		for (int i = 1; i < cats.size(); i++) {
+			if (cats.get(i)[1].contains(mPresetCat)) {
+				return i;
+			}
+		}
+		if ("电视剧".equals(mPresetCat)) {
+			for (int i = 1; i < cats.size(); i++) {
+				String n = cats.get(i)[1];
+				if (n.contains("连续剧") || n.contains("剧集")) {
+					return i;
+				}
+			}
+		}
+		return 0;
 	}
 
 	/* ==================== 列表 ==================== */

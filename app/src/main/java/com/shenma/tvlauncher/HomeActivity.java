@@ -608,22 +608,25 @@ public class HomeActivity extends BaseActivity {
 					Bundle pBundle = null;
 					switch (v.getId()) {
 					case R.id.rb_bm_comic:
+						// 旧后端已失效，改走 TVBox 网络点播并预选「动漫」分类
 						pBundle = new Bundle();
-						pBundle.putString("TYPE", "COMIC");
-						openActivity(VodTypeActivity.class, pBundle);
+						pBundle.putString("presetCat", "动漫");
+						openActivity(com.shenma.tvlauncher.netsource.NetVodActivity.class, pBundle);
 						break;
 					case R.id.rb_bm_diy:
 						Utils.showToast(HomeActivity.this, "暂未开放,敬请期待！", R.drawable.toast_smile);
 						break;
 					case R.id.rb_bm_documentary:
+						// 旧后端已失效，改走 TVBox 网络点播并预选「纪录片」分类
 						pBundle = new Bundle();
-						pBundle.putString("TYPE", "DOCUMENTARY");
-						openActivity(VodTypeActivity.class, pBundle);
+						pBundle.putString("presetCat", "纪录片");
+						openActivity(com.shenma.tvlauncher.netsource.NetVodActivity.class, pBundle);
 						break;
 					case R.id.rb_bm_movice:
+						// 旧后端 ssvip.mybacc.com 已失效，改走 TVBox 网络点播并预选「电影」分类
 						pBundle = new Bundle();
-						pBundle.putString("TYPE", "MOVIE");
-						openActivity(VodTypeActivity.class, pBundle);
+						pBundle.putString("presetCat", "电影");
+						openActivity(com.shenma.tvlauncher.netsource.NetVodActivity.class, pBundle);
 						break;
 					case R.id.rb_bm_music:
 						Utils.showToast(HomeActivity.this, "暂未开放,敬请期待！", R.drawable.toast_smile);
@@ -634,14 +637,16 @@ public class HomeActivity extends BaseActivity {
 						openActivity(VodTypeActivity.class, pBundle);
 						break;
 					case R.id.rb_bm_tv_show:
+						// 旧后端已失效，改走 TVBox 网络点播并预选「综艺」分类
 						pBundle = new Bundle();
-						pBundle.putString("TYPE", "TVSHOW");
-						openActivity(VodTypeActivity.class, pBundle);
+						pBundle.putString("presetCat", "综艺");
+						openActivity(com.shenma.tvlauncher.netsource.NetVodActivity.class, pBundle);
 						break;
 					case R.id.rb_bm_tvplay:
+						// 旧后端 ssvip.mybacc.com 已失效，改走 TVBox 网络点播并预选「电视剧」分类
 						pBundle = new Bundle();
-						pBundle.putString("TYPE", "TVPLAY");
-						openActivity(VodTypeActivity.class, pBundle);
+						pBundle.putString("presetCat", "电视剧");
+						openActivity(com.shenma.tvlauncher.netsource.NetVodActivity.class, pBundle);
 						break;
 					}
 				}
