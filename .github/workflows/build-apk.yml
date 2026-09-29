@@ -9,25 +9,40 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
       - name: Install JDK 17
         uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools build-tools;34.0.0 platforms;android-34
+
+      # ========== 新增：安装Python3.10 给Chaquopy ==========
+      - name: Install Python 3.10 for Chaquopy
+        run: |
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt update
+          sudo apt install python3.10 python3.10-dev python3.10-venv -y
+          python3.10 --version
+          which python3.10
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
       # 解密JKS密钥到根目录
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > shenma.jks
+
       # 编译release包
       - name: Build release APK
         run: |
           ./gradlew clean
           ./gradlew assembleRelease
+
       # 固定build-tools路径，手动apksigner签名
       - name: Sign APK manually
         env:
@@ -48,11 +63,13 @@ jobs:
             --key-pass pass:$KEY_PASSWORD \
             --ks-key-alias $KEY_ALIAS \
             --out "$SIGNED_APK" "$ALIGNED_APK"
+
       # 查找所有apk，增加ls查看目录内容，方便调试
       - name: Find all APK files
         run: |
           find . -name "*.apk"
           ls -la app/build/outputs/apk/release/
+
       # 上传【已签名】的apk
       - name: Upload Signed APK
         uses: actions/upload-artifact@v6
