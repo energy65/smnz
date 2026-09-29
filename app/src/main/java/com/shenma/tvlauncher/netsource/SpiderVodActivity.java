@@ -22,6 +22,8 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.LruCache;
@@ -37,12 +39,15 @@ import android.widget.EditText;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
 /**
  * TVBox 爬虫站点（type=3）浏览页，支持 jar / js / py 三类爬虫
  * 一次只运行一个爬虫站点，避免多源并发带来的内存与网络压力
+ * 详情页采用"一剧多源"样式：海报 + 信息 + 源选择 + 剧集网格
  */
 public class SpiderVodActivity extends Activity {
 
@@ -50,8 +55,6 @@ public class SpiderVodActivity extends Activity {
 
 	private LinearLayout mSiteRow;
 	private LinearLayout mCatRow;
-	private LinearLayout mLineRow;
-	private LinearLayout mEpisodes;
 	private GridView mGrid;
 	private TextView mPageInfo;
 	private TextView mLoading;
@@ -60,9 +63,17 @@ public class SpiderVodActivity extends Activity {
 	private View mDetailPanel;
 	private View mFilterPanel;
 	private TextView mDetailName;
-	private TextView mDetailMeta;
+	private TextView mDetailDirector;
+	private TextView mDetailActors;
+	private TextView mDetailArea;
+	private TextView mDetailYear;
+	private TextView mDetailType;
+	private TextView mDetailRemarks;
 	private TextView mDetailIntro;
 	private ImageView mDetailPic;
+	private RadioGroup mDetailSources;
+	private Button mDetailPlay;
+	private GridView mDetailEpisodes;
 
 	private ArrayList<SpiderSite> mSites = new ArrayList<SpiderSite>();
 	private ArrayList<JSONObject> mClasses = new ArrayList<JSONObject>();
@@ -82,6 +93,7 @@ public class SpiderVodActivity extends Activity {
 	private String mTypeName = "";
 	private JSONArray mList = new JSONArray();
 	private GridAdapter mAdapter;
+	private EpisodeAdapter mEpisodeAdapter;
 	private LruCache<String, Bitmap> mPicCache = new LruCache<String, Bitmap>(64);
 	private Handler mUi = new Handler();
 	private ExecutorService mPool = Executors.newSingleThreadExecutor();
@@ -97,6 +109,14 @@ public class SpiderVodActivity extends Activity {
 			@Override
 			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 				openDetail(position);
+			}
+		});
+		mEpisodeAdapter = new EpisodeAdapter();
+		mDetailEpisodes.setAdapter(mEpisodeAdapter);
+		mDetailEpisodes.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+			@Override
+			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+				playAt(position);
 			}
 		});
 		setBtn(R.id.net_search_btn, new View.OnClickListener() {
@@ -129,6 +149,12 @@ public class SpiderVodActivity extends Activity {
 			@Override
 			public void onClick(View v) {
 				mDetailPanel.setVisibility(View.GONE);
+			}
+		});
+		setBtn(R.id.net_detail_play, new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				playAt(0);
 			}
 		});
 		setBtn(R.id.net_menu_btn, new View.OnClickListener() {
@@ -265,7 +291,6 @@ public class SpiderVodActivity extends Activity {
 						}
 						buildCatRow();
 						if (mClasses.isEmpty()) {
-							// 没有分类时直接尝试首页推荐
 							mCatIdx = -1;
 							loadList();
 						} else {
@@ -319,7 +344,6 @@ public class SpiderVodActivity extends Activity {
 					JSONObject cls = mClasses.get(mCatIdx);
 					ret = SpiderApi.category(mSpider, cls.optString("type_id"), String.valueOf(mPage), mExtend.isEmpty() == false, mExtend);
 				} else {
-					// 无分类：取首页推荐
 					ret = SpiderApi.homeVideo(mSpider);
 				}
 				final JSONObject result = ret;
@@ -340,22 +364,6 @@ public class SpiderVodActivity extends Activity {
 				});
 			}
 		});
-	}
-
-	private static String safe(String json) {
-		return json == null ? "{}" : json;
-	}
-
-	private static JSONObject parse(String json) {
-		try {
-			JSONObject ret = new JSONObject(json);
-			if (ret.optJSONArray("list") == null) {
-				ret.put("list", new JSONArray());
-			}
-			return ret;
-		} catch (Exception e) {
-			return new JSONObject();
-		}
 	}
 
 	/* ==================== 详情 ==================== */
@@ -392,96 +400,62 @@ public class SpiderVodActivity extends Activity {
 
 	private void showDetail(JSONObject vod) {
 		mDetailName.setText(vod.optString("vod_name"));
-		StringBuilder meta = new StringBuilder();
-		appendMeta(meta, "导演", vod.optString("vod_director"));
-		appendMeta(meta, "主演", vod.optString("vod_actor"));
-		appendMeta(meta, "类型", vod.optString("vod_class"));
-		appendMeta(meta, "地区", vod.optString("vod_area"));
-		appendMeta(meta, "年份", vod.optString("vod_year"));
-		appendMeta(meta, "备注", vod.optString("vod_remarks"));
-		mDetailMeta.setText(meta.toString());
+		mDetailDirector.setText("导演：" + vod.optString("vod_director"));
+		mDetailActors.setText("主演：" + vod.optString("vod_actor"));
+		mDetailArea.setText("地区：" + vod.optString("vod_area"));
+		mDetailYear.setText("年代：" + vod.optString("vod_year"));
+		mDetailType.setText("类型：" + vod.optString("vod_class"));
+		mDetailRemarks.setText("备注：" + vod.optString("vod_remarks"));
 		mDetailIntro.setText(vod.optString("vod_content"));
 		loadPic(vod.optString("vod_pic"), mDetailPic);
 		mLines = SpiderApi.lines(vod);
 		mLineIdx = 0;
-		buildLineRow();
-		buildEpisodeRow();
+		buildSourceRow();
+		buildEpisodeGrid();
 		mDetailPanel.setVisibility(View.VISIBLE);
 	}
 
-	private static void appendMeta(StringBuilder sb, String label, String value) {
-		if (value != null && value.length() > 0 && !"0".equals(value)) {
-			if (sb.length() > 0) {
-				sb.append("    ");
-			}
-			sb.append(label).append("：").append(value);
-		}
-	}
-
-	private void buildLineRow() {
-		mLineRow.removeAllViews();
-		if (mSite != null) {
-			TextView src = new TextView(this);
-			src.setText("来源：" + mSite.name);
-			src.setTextColor(0xFF9AA1AC);
-			src.setTextSize(13);
-			src.setGravity(Gravity.CENTER_VERTICAL);
-			LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
-					LinearLayout.LayoutParams.MATCH_PARENT);
-			slp.rightMargin = 12;
-			src.setLayoutParams(slp);
-			mLineRow.addView(src);
+	/**
+	 * 构建源选择 RadioGroup（一剧多源）
+	 */
+	private void buildSourceRow() {
+		mDetailSources.removeAllViews();
+		if (mLines.isEmpty()) {
+			return;
 		}
 		for (int i = 0; i < mLines.size(); i++) {
 			final int idx = i;
-			Button b = makeChip(mLines.get(i).getFlag(), i == mLineIdx);
-			b.setOnClickListener(new View.OnClickListener() {
+			RadioButton rb = new RadioButton(this);
+			rb.setText(mLines.get(i).getFlag());
+			rb.setTextColor(Color.WHITE);
+			rb.setButtonDrawable(null);
+			rb.setPadding(16, 4, 16, 4);
+			rb.setGravity(Gravity.CENTER);
+			rb.setBackgroundColor(i == mLineIdx ? 0xFF4FC3F7 : 0xFF2A313D);
+			rb.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
 					mLineIdx = idx;
-					buildLineRow();
-					buildEpisodeRow();
+					buildSourceRow();
+					buildEpisodeGrid();
 				}
 			});
-			mLineRow.addView(b);
+			RadioGroup.LayoutParams lp = new RadioGroup.LayoutParams(
+					ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+			lp.rightMargin = 8;
+			mDetailSources.addView(rb, lp);
 		}
 	}
 
-	private void buildEpisodeRow() {
-		mEpisodes.removeAllViews();
+	/**
+	 * 构建剧集 GridView
+	 */
+	private void buildEpisodeGrid() {
 		if (mLines.isEmpty()) {
-			TextView tv = new TextView(this);
-			tv.setText("该影片暂无可播放地址");
-			tv.setTextColor(0xFF9AA1AC);
-			mEpisodes.addView(tv);
+			mEpisodeAdapter.notifyDataSetChanged();
 			return;
 		}
-		ArrayList<SpiderApi.Item> items = mLines.get(mLineIdx).getItems();
-		int perRow = 5;
-		for (int start = 0; start < items.size(); start += perRow) {
-			LinearLayout row = new LinearLayout(this);
-			row.setOrientation(LinearLayout.HORIZONTAL);
-			int end = Math.min(start + perRow, items.size());
-			for (int i = start; i < end; i++) {
-				final int idx = i;
-				Button b = new Button(this);
-				b.setText(items.get(i).name);
-				b.setTextSize(13);
-				b.setPadding(16, 4, 16, 4);
-				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-				lp.rightMargin = 6;
-				lp.topMargin = 6;
-				b.setLayoutParams(lp);
-				b.setOnClickListener(new View.OnClickListener() {
-					@Override
-					public void onClick(View v) {
-						playAt(idx);
-					}
-				});
-				row.addView(b);
-			}
-			mEpisodes.addView(row);
-		}
+		mEpisodeAdapter.notifyDataSetChanged();
 	}
 
 	/* ==================== 播放 ==================== */
@@ -496,7 +470,6 @@ public class SpiderVodActivity extends Activity {
 		}
 		final SpiderApi.Item item = items.get(idx);
 		final String flag = mLines.get(mLineIdx).getFlag();
-		// 已经是直链的地址直接交给播放器，否则回源解析
 		if (item.id.startsWith("http")) {
 			startPlayer(item.id, buildEpisodeList(items, idx), idx);
 			return;
@@ -548,7 +521,6 @@ public class SpiderVodActivity extends Activity {
 		if (!web) {
 			it.setClass(this, NetVodPlayerActivity.class);
 		} else {
-			// 需要嗅探/网页解析的地址走 XWalk
 			for (VideoInfo info : infos) {
 				info.url = VideoList.getProxiedUrl(info.url);
 			}
@@ -570,17 +542,23 @@ public class SpiderVodActivity extends Activity {
 	private void findViews() {
 		mSiteRow = (LinearLayout) findViewById(R.id.net_site_row);
 		mCatRow = (LinearLayout) findViewById(R.id.net_cat_row);
-		mLineRow = (LinearLayout) findViewById(R.id.net_detail_lines);
-		mEpisodes = (LinearLayout) findViewById(R.id.net_detail_episodes);
 		mGrid = (GridView) findViewById(R.id.net_vod_grid);
 		mPageInfo = (TextView) findViewById(R.id.net_page_info);
 		mLoading = (TextView) findViewById(R.id.net_vod_loading);
 		mDetailPanel = findViewById(R.id.net_detail_panel);
 		mFilterPanel = findViewById(R.id.net_filter_panel);
 		mDetailName = (TextView) findViewById(R.id.net_detail_name);
-		mDetailMeta = (TextView) findViewById(R.id.net_detail_meta);
+		mDetailDirector = (TextView) findViewById(R.id.net_detail_director);
+		mDetailActors = (TextView) findViewById(R.id.net_detail_actors);
+		mDetailArea = (TextView) findViewById(R.id.net_detail_area);
+		mDetailYear = (TextView) findViewById(R.id.net_detail_year);
+		mDetailType = (TextView) findViewById(R.id.net_detail_type);
+		mDetailRemarks = (TextView) findViewById(R.id.net_detail_remarks);
 		mDetailIntro = (TextView) findViewById(R.id.net_detail_intro);
 		mDetailPic = (ImageView) findViewById(R.id.net_detail_pic);
+		mDetailSources = (RadioGroup) findViewById(R.id.net_detail_sources);
+		mDetailPlay = (Button) findViewById(R.id.net_detail_play);
+		mDetailEpisodes = (GridView) findViewById(R.id.net_detail_episodes);
 		mSearchInput = (EditText) findViewById(R.id.net_search_input);
 		mTitle = (TextView) findViewById(R.id.net_title);
 		mLoading.setText("加载中...");
@@ -648,6 +626,8 @@ public class SpiderVodActivity extends Activity {
 		}, "spider-pic").start();
 	}
 
+	/* ==================== 列表适配器 ==================== */
+
 	private class GridAdapter extends BaseAdapter {
 		@Override
 		public int getCount() {
@@ -681,6 +661,45 @@ public class SpiderVodActivity extends Activity {
 			remarks.setText(item.optString("vod_remarks"));
 			loadPic(item.optString("vod_pic"), pic);
 			return v;
+		}
+	}
+
+	/* ==================== 剧集适配器 ==================== */
+
+	private class EpisodeAdapter extends BaseAdapter {
+		@Override
+		public int getCount() {
+			if (mLines.isEmpty()) {
+				return 0;
+			}
+			return mLines.get(mLineIdx).getItems().size();
+		}
+
+		@Override
+		public Object getItem(int position) {
+			return null;
+		}
+
+		@Override
+		public long getItemId(int position) {
+			return position;
+		}
+
+		@Override
+		public View getView(int position, View convertView, ViewGroup parent) {
+			TextView tv;
+			if (convertView instanceof TextView) {
+				tv = (TextView) convertView;
+			} else {
+				tv = new TextView(SpiderVodActivity.this);
+				tv.setPadding(12, 8, 12, 8);
+				tv.setTextColor(Color.WHITE);
+				tv.setTextSize(13);
+				tv.setGravity(Gravity.CENTER);
+				tv.setBackgroundColor(0xFF2A313D);
+			}
+			tv.setText(mLines.get(mLineIdx).getItems().get(position).name);
+			return tv;
 		}
 	}
 

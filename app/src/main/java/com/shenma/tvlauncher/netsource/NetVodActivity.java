@@ -32,6 +32,8 @@ import android.widget.EditText;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,10 +49,13 @@ public class NetVodActivity extends Activity {
 		ArrayList<String[]> eps = new ArrayList<String[]>();// [0]=集名 [1]=地址
 	}
 
-	private LinearLayout mSiteRow, mCatRow, mLineRow, mEpisodes;
+	private LinearLayout mSiteRow, mCatRow;
 	private GridView mGrid;
-	private TextView mPageInfo, mLoading, mDetailName, mDetailMeta, mDetailIntro, mTitle;
+	private TextView mPageInfo, mLoading, mDetailName, mDetailIntro, mTitle;
+	private TextView mDetailDirector, mDetailActors, mDetailArea, mDetailYear, mDetailType, mDetailRemarks;
 	private ImageView mDetailPic;
+	private RadioGroup mDetailSources;
+	private GridView mDetailEpisodes;
 	private View mDetailPanel, mFilterPanel;
 	private EditText mSearchInput;
 
@@ -190,15 +195,20 @@ public class NetVodActivity extends Activity {
 	private void findViews() {
 		mSiteRow = (LinearLayout) findViewById(R.id.net_site_row);
 		mCatRow = (LinearLayout) findViewById(R.id.net_cat_row);
-		mLineRow = (LinearLayout) findViewById(R.id.net_detail_lines);
-		mEpisodes = (LinearLayout) findViewById(R.id.net_detail_episodes);
+		mDetailSources = (RadioGroup) findViewById(R.id.net_detail_sources);
+		mDetailEpisodes = (GridView) findViewById(R.id.net_detail_episodes);
 		mGrid = (GridView) findViewById(R.id.net_vod_grid);
 		mPageInfo = (TextView) findViewById(R.id.net_page_info);
 		mLoading = (TextView) findViewById(R.id.net_vod_loading);
 		mDetailPanel = findViewById(R.id.net_detail_panel);
 		mFilterPanel = findViewById(R.id.net_filter_panel);
 		mDetailName = (TextView) findViewById(R.id.net_detail_name);
-		mDetailMeta = (TextView) findViewById(R.id.net_detail_meta);
+		mDetailDirector = (TextView) findViewById(R.id.net_detail_director);
+		mDetailActors = (TextView) findViewById(R.id.net_detail_actors);
+		mDetailArea = (TextView) findViewById(R.id.net_detail_area);
+		mDetailYear = (TextView) findViewById(R.id.net_detail_year);
+		mDetailType = (TextView) findViewById(R.id.net_detail_type);
+		mDetailRemarks = (TextView) findViewById(R.id.net_detail_remarks);
 		mDetailIntro = (TextView) findViewById(R.id.net_detail_intro);
 		mDetailPic = (ImageView) findViewById(R.id.net_detail_pic);
 		mSearchInput = (EditText) findViewById(R.id.net_search_input);
@@ -550,10 +560,15 @@ public class NetVodActivity extends Activity {
 		}
 		mDetailPanel.setVisibility(View.VISIBLE);
 		mDetailName.setText(mVodName);
-		mDetailMeta.setText("加载中...");
+		mDetailDirector.setText("");
+		mDetailActors.setText("");
+		mDetailArea.setText("");
+		mDetailYear.setText("");
+		mDetailType.setText("");
+		mDetailRemarks.setText("");
 		mDetailIntro.setText("");
-		mLineRow.removeAllViews();
-		mEpisodes.removeAllViews();
+		mDetailSources.removeAllViews();
+		mDetailEpisodes.setAdapter(null);
 		loadPic(mVodPic, mDetailPic);
 		final String api = mSites.get(mSiteIdx).api;
 		new Thread(new Runnable() {
@@ -587,10 +602,15 @@ public class NetVodActivity extends Activity {
 		mVodPic = "";
 		mDetailPanel.setVisibility(View.VISIBLE);
 		mDetailName.setText("加载中...");
-		mDetailMeta.setText("");
+		mDetailDirector.setText("");
+		mDetailActors.setText("");
+		mDetailArea.setText("");
+		mDetailYear.setText("");
+		mDetailType.setText("");
+		mDetailRemarks.setText("");
 		mDetailIntro.setText("");
-		mLineRow.removeAllViews();
-		mEpisodes.removeAllViews();
+		mDetailSources.removeAllViews();
+		mDetailEpisodes.setAdapter(null);
 		final String api = mSites.get(mSiteIdx).api;
 		new Thread(new Runnable() {
 			@Override
@@ -626,27 +646,18 @@ public class NetVodActivity extends Activity {
 
 	private void showDetail(JSONObject detail) {
 		if (detail == null) {
-			mDetailMeta.setText("加载失败，请重试");
+			mDetailDirector.setText("加载失败，请重试");
 			return;
 		}
-		StringBuilder meta = new StringBuilder();
-		String year = detail.optString("vod_year");
-		String area = detail.optString("vod_area");
-		String remarks = detail.optString("vod_remarks");
-		if (year.length() > 0) {
-			meta.append(year).append("  ");
-		}
-		if (area.length() > 0) {
-			meta.append(area).append("  ");
-		}
-		if (remarks.length() > 0) {
-			meta.append(remarks);
-		}
-		mDetailMeta.setText(meta.toString());
+		mDetailDirector.setText("导演：" + detail.optString("vod_director"));
+		mDetailActors.setText("主演：" + detail.optString("vod_actor"));
+		mDetailArea.setText("地区：" + detail.optString("vod_area"));
+		mDetailYear.setText("年代：" + detail.optString("vod_year"));
+		mDetailType.setText("类型：" + detail.optString("vod_class"));
+		mDetailRemarks.setText("备注：" + detail.optString("vod_remarks"));
 		String intro = detail.optString("vod_content", detail.optString("vod_blurb"));
 		mDetailIntro.setText(intro.replaceAll("<[^>]+>", "").trim());
 
-		// 苹果CMS 分集：vod_play_from/vod_play_url 按 $$$ 分线路，线路内 集名$url#集名$url
 		mLines = parseCmsLines(detail.optString("vod_play_from", ""),
 				detail.optString("vod_play_url", ""));
 		mLineIdx = 0;
@@ -685,24 +696,20 @@ public class NetVodActivity extends Activity {
 	}
 
 	private void buildLineRow() {
-		mLineRow.removeAllViews();
-		// 线路行前显示视频来源站点名（不在视频顶部显示）
-		if (mSites != null && mSiteIdx >= 0 && mSiteIdx < mSites.size()) {
-			TextView src = new TextView(this);
-			src.setText("来源：" + mSites.get(mSiteIdx).name);
-			src.setTextColor(0xFF9AA1AC);
-			src.setTextSize(13);
-			src.setGravity(Gravity.CENTER_VERTICAL);
-			LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-					LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT);
-			slp.rightMargin = 12;
-			src.setLayoutParams(slp);
-			mLineRow.addView(src);
+		mDetailSources.removeAllViews();
+		if (mLines == null || mLines.isEmpty()) {
+			return;
 		}
 		for (int i = 0; i < mLines.size(); i++) {
 			final int idx = i;
-			Button b = makeChip(mLines.get(i).name, i == mLineIdx);
-			b.setOnClickListener(new View.OnClickListener() {
+			RadioButton rb = new RadioButton(this);
+			rb.setText(mLines.get(i).name);
+			rb.setTextColor(0xFFFFFFFF);
+			rb.setButtonDrawable(null);
+			rb.setPadding(16, 4, 16, 4);
+			rb.setGravity(Gravity.CENTER);
+			rb.setBackgroundColor(i == mLineIdx ? 0xFF4FC3F7 : 0xFF2A313D);
+			rb.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
 					mLineIdx = idx;
@@ -710,45 +717,55 @@ public class NetVodActivity extends Activity {
 					buildEpisodeRow();
 				}
 			});
-			mLineRow.addView(b);
+			RadioGroup.LayoutParams lp = new RadioGroup.LayoutParams(
+					ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+			lp.rightMargin = 8;
+			mDetailSources.addView(rb, lp);
 		}
 	}
 
 	private void buildEpisodeRow() {
-		mEpisodes.removeAllViews();
 		if (mLines == null || mLines.isEmpty()) {
-			TextView tv = new TextView(this);
-			tv.setText("该影片暂无可播放地址");
-			tv.setTextColor(0xFF9AA1AC);
-			mEpisodes.addView(tv);
+			mDetailEpisodes.setAdapter(null);
 			return;
 		}
-		ArrayList<String[]> eps = mLines.get(mLineIdx).eps;
-		int perRow = 5;
-		for (int start = 0; start < eps.size(); start += perRow) {
-			LinearLayout row = new LinearLayout(this);
-			row.setOrientation(LinearLayout.HORIZONTAL);
-			int end = Math.min(start + perRow, eps.size());
-			for (int i = start; i < end; i++) {
-				final int idx = i;
-				Button b = new Button(this);
-				b.setText(eps.get(i)[0]);
-				b.setTextSize(13);
-				b.setPadding(16, 4, 16, 4);
-				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
-						ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-				lp.rightMargin = 6;
-				lp.topMargin = 6;
-				b.setLayoutParams(lp);
-				b.setOnClickListener(new View.OnClickListener() {
-					@Override
-					public void onClick(View v) {
-						playAt(idx);
-					}
-				});
-				row.addView(b);
+		mDetailEpisodes.setAdapter(new EpisodeAdapter());
+	}
+
+	private class EpisodeAdapter extends BaseAdapter {
+		@Override
+		public int getCount() {
+			if (mLines == null || mLines.isEmpty()) {
+				return 0;
 			}
-			mEpisodes.addView(row);
+			return mLines.get(mLineIdx).eps.size();
+		}
+
+		@Override
+		public Object getItem(int position) {
+			return null;
+		}
+
+		@Override
+		public long getItemId(int position) {
+			return position;
+		}
+
+		@Override
+		public View getView(int position, View convertView, ViewGroup parent) {
+			TextView tv;
+			if (convertView instanceof TextView) {
+				tv = (TextView) convertView;
+			} else {
+				tv = new TextView(NetVodActivity.this);
+				tv.setPadding(12, 8, 12, 8);
+				tv.setTextColor(0xFFFFFFFF);
+				tv.setTextSize(13);
+				tv.setGravity(Gravity.CENTER);
+				tv.setBackgroundColor(0xFF2A313D);
+			}
+			tv.setText(mLines.get(mLineIdx).eps.get(position)[0]);
+			return tv;
 		}
 	}
 
