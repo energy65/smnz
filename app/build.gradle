@@ -1,9 +1,7 @@
 apply plugin: 'com.android.application'
-
 android {
     namespace 'com.shenma.tvlauncher'
     compileSdk 35
-
     signingConfigs {
         release {
             storeFile file('smtv.jks')
@@ -12,7 +10,6 @@ android {
             keyPassword 'smtv2026'
         }
     }
-
     defaultConfig {
         applicationId "com.shenma.tvlauncher"
         // Chaquopy（Python 爬虫）要求 minSdk >= 24
@@ -24,8 +21,22 @@ android {
             // TV 盒子以 32 位为主，且 cyberplayer 仅提供 armeabi-v7a
             abiFilters 'armeabi-v7a'
         }
-    }
 
+        // ========== 新增 Chaquopy Python 配置 ==========
+        python {
+            version "3.10"
+            buildPython "E:/Program Files/Python310/python.exe"
+            // 如果项目需要pip安装依赖，就把pip代码写这里；
+            // 如果暂时不需要pip包，pip{}可以删掉
+            /*
+            pip {
+                install "requests"
+                install "lxml"
+            }
+            */
+        }
+
+    }
     buildTypes {
         release {
             minifyEnabled false
@@ -33,21 +44,17 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-project.txt'
         }
     }
-
     // 老代码（VideoPlayerActivity）仍在使用 Apache HTTP API
     useLibrary 'org.apache.http.legacy'
-
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-
     lint {
         abortOnError false
         checkReleaseBuilds false
     }
 }
-
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation 'com.android.support:support-v4:21.0.3'
