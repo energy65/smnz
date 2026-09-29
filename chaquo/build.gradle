@@ -1,0 +1,45 @@
+apply plugin: 'com.android.library'
+apply plugin: 'com.chaquo.python'
+
+// TVBox Python 爬虫引擎（裁剪自 energy65/yunali-kk 的 chaquo 模块）
+// Chaquopy 要求 minSdk >= 24
+android {
+    namespace 'com.fongmi.chaquo'
+    compileSdk 35
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 21
+
+        // 与 app 保持一致：仅 armeabi-v7a（app 自带 cyberplayer 原生库只有 32 位）
+        ndk {
+            abiFilters 'armeabi-v7a'
+        }
+
+        python {
+            version = "3.10"
+            pip {
+                install("-r", "requirements.txt")
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            python.srcDirs = ["src/main/python"]
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation project(':catvod')
+}

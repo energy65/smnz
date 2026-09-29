@@ -15,7 +15,8 @@ android {
 
     defaultConfig {
         applicationId "com.shenma.tvlauncher"
-        minSdkVersion 21
+        // Chaquopy（Python 爬虫）要求 minSdk >= 24
+        minSdkVersion 24
         targetSdkVersion 21
         versionCode 116
         versionName '1.4.2'
@@ -50,7 +51,11 @@ android {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation 'com.android.support:support-v4:21.0.3'
-    implementation 'com.google.code.gson:gson:2.2.4'
+    implementation 'com.google.code.gson:gson:2.10.1'
     implementation project(':xwalk_core_library')
     implementation project(':xwalkvideoplayer')
+    // TVBox 爬虫引擎：抽象层 / QuickJS / Chaquopy
+    implementation project(':catvod')
+    implementation project(':quickjs')
+    implementation project(':chaquo')
 }

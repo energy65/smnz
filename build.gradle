@@ -8,6 +8,8 @@ buildscript {
     dependencies {
         // AGP 8.7.x 要求 Gradle >= 8.9，运行需 JDK 17+
         classpath 'com.android.tools.build:gradle:8.7.3'
+        // TVBox Python 爬虫（Chaquopy 17.0 要求 AGP 7.3~9.2、minSdk 24）
+        classpath 'com.chaquo.python:gradle:17.0.0'
     }
 }
 

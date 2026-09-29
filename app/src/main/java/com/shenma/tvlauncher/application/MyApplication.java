@@ -45,6 +45,8 @@ public final class MyApplication extends Application {
 	@Override
 	public void onCreate() {
 		super.onCreate();
+		// TVBox 爬虫（jar / js / python）依赖的全局 Context
+		com.github.catvod.Init.set(this);
 		IntentFilter technologyfilter = new IntentFilter();
 		technologyfilter.addAction(Intent.ACTION_BATTERY_CHANGED);
 		registerReceiver(mBroadcastReceiver, technologyfilter);

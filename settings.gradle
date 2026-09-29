@@ -10,5 +10,8 @@ pluginManagement {
 }
 
 include ':app'
+include ':catvod'
+include ':chaquo'
+include ':quickjs'
 include ':xwalkvideoplayer'
 include ':xwalk_core_library'

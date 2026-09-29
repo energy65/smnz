@@ -1,0 +1,28 @@
+apply plugin: 'com.android.library'
+
+// TVBox JS 爬虫引擎（裁剪自 energy65/yunali-kk 的 quickjs 模块）
+// 与 TVBox 同款 QuickJS 运行时，JS 绑定见 method/Global.java，兼容 csp_XXX 与 drpy 类源
+android {
+    namespace 'com.fongmi.quickjs'
+    compileSdk 35
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 21
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    api project(':catvod')
+    api 'wang.harlon.quickjs:wrapper-android:3.2.3'
+    implementation 'wang.harlon.quickjs:wrapper-java:3.2.3'
+}

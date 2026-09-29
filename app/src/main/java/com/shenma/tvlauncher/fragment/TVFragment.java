@@ -703,8 +703,18 @@ public class TVFragment extends BaseFragment{
 				return true;
 			}
 		});
-		for (int i = 3; i < tv_typeLogs.length; i++) {
-			tv_typeLogs[i].setOnLongClickListener(new OnLongClickListener() {
+		//长按「源管理」进入爬虫点播（TVBox forever.json type=3 源，支持 jar/js/py）
+		tv_typeLogs[2].setOnLongClickListener(new OnLongClickListener() {
+			@Override
+			public boolean onLongClick(View v) {
+				Utils.showToast(home, "正在加载爬虫源...", R.drawable.toast_smile);
+				Intent i = new Intent();
+				i.setClass(home, com.shenma.tvlauncher.netsource.SpiderVodActivity.class);
+				home.startActivity(i);
+				return true;
+			}
+		});
+		for (int i = 3; i < tv_typeLogs.length; i++) {	tv_typeLogs[i].setOnLongClickListener(new OnLongClickListener() {
 				
 				@Override
 				public boolean onLongClick(View v) {

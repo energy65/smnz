@@ -1,0 +1,33 @@
+apply plugin: 'com.android.library'
+
+// TVBox 爬虫抽象层（裁剪自 energy65/yunali-kk 的 catvod 模块）
+// 保留：Spider 接口、OkHttp 网络栈、Json/Path/Util/Trans 等工具
+// 裁掉：sardine(WebDAV) / smbj(SMB) / zxing(扫码) / guava / androidx.preference / androidx.startup
+android {
+    namespace 'com.github.catvod.crawler'
+    compileSdk 35
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 21
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    api 'androidx.annotation:annotation:1.7.1'
+    api 'androidx.collection:collection:1.4.0'
+    api 'com.squareup.okhttp3:okhttp:4.12.0'
+    api 'com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0'
+    api 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+    api 'com.google.code.gson:gson:2.10.1'
+    api 'com.orhanobut:logger:2.2.0'
+}

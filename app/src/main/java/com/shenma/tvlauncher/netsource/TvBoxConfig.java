@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import com.shenma.tvlauncher.spider.SpiderSite;
 import com.shenma.tvlauncher.utils.Constant;
 
 import android.content.Context;
@@ -39,6 +40,7 @@ public class TvBoxConfig {
 
 	private static ArrayList<Site> mSites;
 	private static ArrayList<Live> mLives;
+	private static ArrayList<SpiderSite> mSpiders;
 
 	/**
 	 * 获取点播站点列表（只保留 type=1 且为 http 直连 CMS 接口的源）
@@ -46,6 +48,14 @@ public class TvBoxConfig {
 	public static synchronized ArrayList<Site> getSites(Context ctx) {
 		ensureLoaded(ctx);
 		return mSites;
+	}
+
+	/**
+	 * 获取爬虫站点列表（type=3，支持 jar / js / py）
+	 */
+	public static synchronized ArrayList<SpiderSite> getSpiders(Context ctx) {
+		ensureLoaded(ctx);
+		return mSpiders;
 	}
 
 	/**
@@ -57,11 +67,12 @@ public class TvBoxConfig {
 	}
 
 	private static void ensureLoaded(Context ctx) {
-		if (mSites != null && mLives != null) {
+		if (mSites != null && mLives != null && mSpiders != null) {
 			return;
 		}
 		mSites = new ArrayList<Site>();
 		mLives = new ArrayList<Live>();
+		mSpiders = new ArrayList<SpiderSite>();
 
 		// 1. 在线拉取
 		String json = null;
@@ -99,6 +110,10 @@ public class TvBoxConfig {
 			JSONObject root = new JSONObject(json);
 			ArrayList<Site> sites = new ArrayList<Site>();
 			ArrayList<Live> lives = new ArrayList<Live>();
+			ArrayList<SpiderSite> spiders = new ArrayList<SpiderSite>();
+			// 配置级 spider（jar 地址），站点 jar 为空时继承
+			String spider = root.optString("spider", "");
+			String base = configBase();
 
 			// 点播：type=1 且为 http(s) 直连接口（排除 py/js/php 脚本源与 xml 源）
 			JSONArray sa = root.optJSONArray("sites");
@@ -108,7 +123,17 @@ public class TvBoxConfig {
 					if (s == null) {
 						continue;
 					}
-					if (s.optInt("type", -1) != 1) {
+					int type = s.optInt("type", -1);
+					// 爬虫：type=3，api 为 csp_ClassName 或 .js / .py 地址
+					if (type == 3) {
+						SpiderSite spiderSite = SpiderSite.from(s, spider, base);
+						if (spiderSite.api.length() == 0) {
+							continue;
+						}
+						spiders.add(spiderSite);
+						continue;
+					}
+					if (type != 1) {
 						continue;
 					}
 					String api = s.optString("api", "");
@@ -152,11 +177,12 @@ public class TvBoxConfig {
 				}
 			}
 
-			if (sites.isEmpty() && lives.isEmpty()) {
+			if (sites.isEmpty() && lives.isEmpty() && spiders.isEmpty()) {
 				return false;
 			}
 			mSites = sites;
 			mLives = lives;
+			mSpiders = spiders;
 			return true;
 		} catch (Exception e) {
 			Log.w(TAG, "parse config error: " + e);
@@ -167,11 +193,15 @@ public class TvBoxConfig {
 	/** 配置内 ./ 相对路径转绝对路径 */
 	public static String absUrl(String u) {
 		if (u != null && u.startsWith("./")) {
-			String base = Constant.TVBOX_CONFIG_URL;
-			base = base.substring(0, base.lastIndexOf('/') + 1);
-			return base + u.substring(2);
+			return configBase() + u.substring(2);
 		}
 		return u;
+	}
+
+	/** 配置地址所在目录，jar/js/py 的相对路径以此为基地址 */
+	public static String configBase() {
+		String base = Constant.TVBOX_CONFIG_URL;
+		return base.substring(0, base.lastIndexOf('/') + 1);
 	}
 
 	/**

@@ -166,6 +166,10 @@
             android:configChanges="orientation|keyboardHidden"
             android:screenOrientation="landscape" />
         <activity
+            android:name=".netsource.SpiderVodActivity"
+            android:configChanges="orientation|keyboardHidden"
+            android:screenOrientation="landscape" />
+        <activity
             android:name=".netsource.NetVodPlayerActivity"
             android:configChanges="orientation|keyboardHidden"
             android:screenOrientation="landscape" />
