@@ -154,6 +154,12 @@ public class NetVodActivity extends Activity {
 				}
 			}
 		});
+		setBtn(R.id.net_spider_btn, new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				startActivity(new Intent(NetVodActivity.this, SpiderVodActivity.class));
+			}
+		});
 		// 配置加载在子线程（含网络请求）
 		mLoading.setVisibility(View.VISIBLE);
 		new Thread(new Runnable() {

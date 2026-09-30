@@ -163,6 +163,12 @@ public class SpiderVodActivity extends Activity {
 				mFilterPanel.setVisibility(mFilterPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
 			}
 		});
+		setBtn(R.id.net_spider_btn, new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				startActivity(new Intent(SpiderVodActivity.this, NetVodActivity.class));
+			}
+		});
 		mFilterPanel.setVisibility(View.VISIBLE);
 		loadSites();
 	}

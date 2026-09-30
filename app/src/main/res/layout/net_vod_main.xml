@@ -77,6 +77,19 @@
                 android:paddingLeft="12dp"
                 android:paddingRight="12dp"
                 android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/net_spider_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="全部线路"
+                android:textColor="#FFFFFFFF"
+                android:background="#FF2A313D"
+                android:layout_marginLeft="4dp"
+                android:minWidth="0dp"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <!-- 筛选面板（默认隐藏，点击菜单切换） -->
