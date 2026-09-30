@@ -28,27 +28,13 @@ public class TvBoxConfig {
 	private static final String TAG = "TvBoxConfig";
 	private static final String CACHE_FILE = "tvbox_config.json";
 
-	public static class Site {
-		public String name;
-		public String api;
-	}
-
 	public static class Live {
 		public String name;
 		public String url;
 	}
 
-	private static ArrayList<Site> mSites;
 	private static ArrayList<Live> mLives;
 	private static ArrayList<SpiderSite> mSpiders;
-
-	/**
-	 * 获取点播站点列表（只保留 type=1 且为 http 直连 CMS 接口的源）
-	 */
-	public static synchronized ArrayList<Site> getSites(Context ctx) {
-		ensureLoaded(ctx);
-		return mSites;
-	}
 
 	/**
 	 * 获取爬虫站点列表（type=3，支持 jar / js / py）
@@ -67,10 +53,9 @@ public class TvBoxConfig {
 	}
 
 	private static void ensureLoaded(Context ctx) {
-		if (mSites != null && mLives != null && mSpiders != null) {
+		if (mLives != null && mSpiders != null) {
 			return;
 		}
-		mSites = new ArrayList<Site>();
 		mLives = new ArrayList<Live>();
 		mSpiders = new ArrayList<SpiderSite>();
 
@@ -107,53 +92,32 @@ public class TvBoxConfig {
 			return false;
 		}
 		try {
-			JSONObject root = new JSONObject(json);
-			ArrayList<Site> sites = new ArrayList<Site>();
-			ArrayList<Live> lives = new ArrayList<Live>();
-			ArrayList<SpiderSite> spiders = new ArrayList<SpiderSite>();
+		JSONObject root = new JSONObject(json);
+		ArrayList<Live> lives = new ArrayList<Live>();
+		ArrayList<SpiderSite> spiders = new ArrayList<SpiderSite>();
 			// 配置级 spider（jar 地址），站点 jar 为空时继承
 			String spider = root.optString("spider", "");
 			String base = configBase();
 
-			// 点播：type=1 且为 http(s) 直连接口（排除 py/js/php 脚本源与 xml 源）
-			JSONArray sa = root.optJSONArray("sites");
-			if (sa != null) {
-				for (int i = 0; i < sa.length(); i++) {
-					JSONObject s = sa.optJSONObject(i);
-					if (s == null) {
+		// 点播：仅保留 type=3 爬虫源，type=1 CMS 接口源已下线
+		JSONArray sa = root.optJSONArray("sites");
+		if (sa != null) {
+			for (int i = 0; i < sa.length(); i++) {
+				JSONObject s = sa.optJSONObject(i);
+				if (s == null) {
+					continue;
+				}
+				int type = s.optInt("type", -1);
+				// 爬虫：type=3，api 为 csp_ClassName 或 .js / .py 地址
+				if (type == 3) {
+					SpiderSite spiderSite = SpiderSite.from(s, spider, base);
+					if (spiderSite.api.length() == 0) {
 						continue;
 					}
-					int type = s.optInt("type", -1);
-					// 爬虫：type=3，api 为 csp_ClassName 或 .js / .py 地址
-					if (type == 3) {
-						SpiderSite spiderSite = SpiderSite.from(s, spider, base);
-						if (spiderSite.api.length() == 0) {
-							continue;
-						}
-						spiders.add(spiderSite);
-						continue;
-					}
-					if (type != 1) {
-						continue;
-					}
-					String api = s.optString("api", "");
-					if (!api.startsWith("http://") && !api.startsWith("https://")) {
-						continue;
-					}
-					String low = api.toLowerCase();
-					if (low.endsWith(".py") || low.endsWith(".js") || low.endsWith(".php")
-							|| low.contains("/at/xml")) {
-						continue;
-					}
-					Site site = new Site();
-					site.name = s.optString("name", "未命名");
-					if (site.name.length() > 14) {
-						site.name = site.name.substring(0, 14);
-					}
-					site.api = api;
-					sites.add(site);
+					spiders.add(spiderSite);
 				}
 			}
+		}
 
 			// 直播：name + url（支持 ./ 相对路径）
 			JSONArray la = root.optJSONArray("lives");
@@ -177,11 +141,10 @@ public class TvBoxConfig {
 				}
 			}
 
-			if (sites.isEmpty() && lives.isEmpty() && spiders.isEmpty()) {
-				return false;
-			}
-			mSites = sites;
-			mLives = lives;
+		if (lives.isEmpty() && spiders.isEmpty()) {
+			return false;
+		}
+		mLives = lives;
 			mSpiders = spiders;
 			return true;
 		} catch (Exception e) {

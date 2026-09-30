@@ -1,14 +1,20 @@
 package com.shenma.tvlauncher.netsource;
 
-import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import com.github.catvod.crawler.Spider;
 import com.shenma.tvlauncher.R;
+import com.shenma.tvlauncher.spider.SpiderApi;
+import com.shenma.tvlauncher.spider.SpiderEngine;
+import com.shenma.tvlauncher.spider.SpiderSite;
 import com.shenma.tvlauncher.vod.WebVideoPlayerActivity;
 import com.shenma.tvlauncher.vod.domain.VideoInfo;
 import com.shenma.tvlauncher.vod.domain.VideoList;
@@ -38,15 +44,27 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 网络点播（TVBox forever.json 的 type=1 CMS 站点）
- * 苹果CMS V10 接口：ac=list 取分类 / ac=videolist 取列表与详情 / wd 搜索
- * 播放：直链走 NetVodPlayerActivity，VIP 站点经解析代理走 WebVideoPlayerActivity
+ * 网络点播聚合页。
+ * 只使用 type=3 爬虫源（type=1 CMS 接口源已下线）。
+ * - 站点行首项为「全部源」聚合模式：并行查询所有爬虫源，按归一化片名合并同一部影片，
+ *   一部影片只显示一条记录，卡片角标显示线路数。
+ * - 详情页线路行按「源名·线路名」列出该片在所有源上的全部线路，切换线路即切换剧集。
+ * - 播放：地址以 http 开头直接播放，否则交给所属源的 playerContent 解析，
+ *   再按地址形态决定走原生播放器还是 XWalk 网页播放器。
  */
 public class NetVodActivity extends Activity {
 
+	/** 聚合模式下代表"全部源"的站点下标 */
+	private static final int SITE_ALL = -1;
+	private static final long LIST_TIMEOUT_MS = 15000L;
+	private static final long DETAIL_TIMEOUT_MS = 15000L;
+
+	/** 详情页的一条线路：某源上的某条播放线路 */
 	private static class Line {
-		String name;
-		ArrayList<String[]> eps = new ArrayList<String[]>();// [0]=集名 [1]=地址
+		String siteKey = "";
+		String siteName = "";
+		String flag = "";
+		ArrayList<SpiderApi.Item> items = new ArrayList<SpiderApi.Item>();
 	}
 
 	private LinearLayout mSiteRow, mCatRow;
@@ -59,36 +77,32 @@ public class NetVodActivity extends Activity {
 	private View mDetailPanel, mFilterPanel;
 	private EditText mSearchInput;
 
-	private ArrayList<TvBoxConfig.Site> mSites;
-	private int mSiteIdx = 0;
+	private ArrayList<SpiderSite> mSites = new ArrayList<SpiderSite>();
+	private ArrayList<Spider> mSpiders = new ArrayList<Spider>();
+	private int mSiteIdx = SITE_ALL;
 	private int mPage = 1;
 	private int mPageCount = 1;
 	private String mKeyword = "";
-	private JSONArray mList = new JSONArray();
+	private ArrayList<VodFilm> mFilms = new ArrayList<VodFilm>();
 	private GridAdapter mAdapter;
 
-	// 详情状态
-	private ArrayList<Line> mLines;
-	private int mLineIdx = 0;
-	private String mVodName = "", mVodId = "", mVodPic = "", mTypeName = "";
-
-	// 多站点聚合：每站分类列表 + 每站当前选中的 type_id
-	@SuppressWarnings("unchecked")
-	private ArrayList<String[]>[] mAllCats;
-	private String[] mSiteTypeIds;
-	private ArrayList<String[]> mDisplayCats;
+	// 每站分类（type_id, type_name）
+	private ArrayList<ArrayList<String[]>> mSiteCats = new ArrayList<ArrayList<String[]>>();
+	private ArrayList<String[]> mDisplayCats = new ArrayList<String[]>();
 	private String mCurCatName = "全部";
+	private String mTypeName = "全部";
 
+	// 详情状态
+	private ArrayList<Line> mLines = new ArrayList<Line>();
+	private int mLineIdx = 0;
+	private String mVodName = "", mVodPic = "";
+
+	private String mPresetCat = "";
+	private String mOpenVodTitle = null;
 	private int mListSeq = 0, mCatSeq = 0;
 
-	private String mPresetCat = "";// 入口预设分类关键词（如 电影/电视剧），匹配不到则回退"全部"
-
-	private String mPresetSite = null;// 入口预设站点名（搜索结果跳转），按名字选中对应站点
-
-	private String mOpenVodId = null;// 入口指定影片 id（首页推荐位/搜索结果），自动打开详情
-
-	private LruCache<String, Bitmap> mPicCache = new LruCache<String, Bitmap>(64);
-	private Handler mUi = new Handler();
+	private LruCache<String, Bitmap> mPicCache = new LruCache<String, Bitmap>(96);
+	private final Handler mUi = new Handler();
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -98,11 +112,7 @@ public class NetVodActivity extends Activity {
 		if (pc != null) {
 			mPresetCat = pc;
 		}
-		String ovi = getIntent().getStringExtra("openVodId");
-		if (ovi != null) {
-			mOpenVodId = ovi;
-		}
-		mPresetSite = getIntent().getStringExtra("presetSite");
+		mOpenVodTitle = getIntent().getStringExtra("openVodTitle");
 		findViews();
 		mAdapter = new GridAdapter();
 		mGrid.setAdapter(mAdapter);
@@ -110,6 +120,12 @@ public class NetVodActivity extends Activity {
 			@Override
 			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 				openDetail(position);
+			}
+		});
+		mDetailEpisodes.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+			@Override
+			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+				playAt(position);
 			}
 		});
 		setBtn(R.id.net_search_btn, new View.OnClickListener() {
@@ -144,6 +160,12 @@ public class NetVodActivity extends Activity {
 				mDetailPanel.setVisibility(View.GONE);
 			}
 		});
+		setBtn(R.id.net_detail_play, new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				playAt(0);
+			}
+		});
 		setBtn(R.id.net_menu_btn, new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -157,45 +179,10 @@ public class NetVodActivity extends Activity {
 		setBtn(R.id.net_spider_btn, new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
-				startActivity(new Intent(NetVodActivity.this, SpiderVodActivity.class));
+				loadSites(true);
 			}
 		});
-		// 配置加载在子线程（含网络请求）
-		mLoading.setVisibility(View.VISIBLE);
-		new Thread(new Runnable() {
-			@Override
-			public void run() {
-				final ArrayList<TvBoxConfig.Site> sites = TvBoxConfig.getSites(NetVodActivity.this);
-				mUi.post(new Runnable() {
-					@Override
-					public void run() {
-						mLoading.setVisibility(View.GONE);
-						mSites = sites;
-						if (sites == null || sites.isEmpty()) {
-							Toast.makeText(NetVodActivity.this, "网络点播源加载失败，请检查网络", Toast.LENGTH_LONG).show();
-							finish();
-							return;
-						}
-						// 搜索结果直达：按预设站点名定位 mSiteIdx，供 openDetailById 使用
-						if (mPresetSite != null) {
-							for (int i = 0; i < sites.size(); i++) {
-								if (sites.get(i).name.equals(mPresetSite)) {
-									mSiteIdx = i;
-									break;
-								}
-							}
-						}
-						initAllSites();
-						// 搜索结果直达：不依赖列表页，直接按 id 拉详情打开面板
-						if (mPresetSite != null && mOpenVodId != null) {
-							String id = mOpenVodId;
-							mOpenVodId = null;
-							openDetailById(id);
-						}
-					}
-				});
-			}
-		}, "tvbox-config-init").start();
+		loadSites(false);
 	}
 
 	private void findViews() {
@@ -219,13 +206,19 @@ public class NetVodActivity extends Activity {
 		mDetailPic = (ImageView) findViewById(R.id.net_detail_pic);
 		mSearchInput = (EditText) findViewById(R.id.net_search_input);
 		mTitle = (TextView) findViewById(R.id.net_title);
-		if (mPresetCat != null && mPresetCat.length() > 0) {
-			mTitle.setText(mPresetCat);
+		TextView refresh = (TextView) findViewById(R.id.net_spider_btn);
+		if (refresh != null) {
+			refresh.setText("刷新源");
 		}
+		mTitle.setText(mPresetCat.length() > 0 ? mPresetCat : "网络点播");
+		mFilterPanel.setVisibility(View.VISIBLE);
 	}
 
 	private void setBtn(int id, View.OnClickListener l) {
-		((Button) findViewById(id)).setOnClickListener(l);
+		View v = findViewById(id);
+		if (v != null) {
+			v.setOnClickListener(l);
+		}
 	}
 
 	private Button makeChip(String text, boolean active) {
@@ -243,127 +236,79 @@ public class NetVodActivity extends Activity {
 		return b;
 	}
 
-	/* ==================== 多站点聚合初始化 ==================== */
+	/* ==================== 源加载 ==================== */
 
-	/** 并行加载所有站点分类，按 presetCat 匹配每站 type_id，并构建展示分类行 */
-	@SuppressWarnings("unchecked")
-	private void initAllSites() {
-		int n = mSites.size();
-		mAllCats = (ArrayList<String[]>[]) new ArrayList[n];
-		mSiteTypeIds = new String[n];
-		for (int i = 0; i < n; i++) {
-			mSiteTypeIds[i] = "";// 默认"全部"（空 type_id）
-		}
-		// 站点行仍然构建，仅在菜单展开时可见
-		buildSiteRow();
+	/** 加载全部爬虫源，并为每站取回分类 */
+	private void loadSites(boolean forceReload) {
 		mLoading.setVisibility(View.VISIBLE);
-		final int seq = ++mCatSeq;
-		final CountDownLatch latch = new CountDownLatch(n);
-		final int perTimeout = 8000;
-		for (int i = 0; i < n; i++) {
-			final int idx = i;
-			final String api = mSites.get(i).api;
-			new Thread(new Runnable() {
-				@Override
-				public void run() {
-					ArrayList<String[]> catList = new ArrayList<String[]>();
-					catList.add(new String[] { "", "全部" });
-					try {
-						JSONObject j = new JSONObject(TvBoxConfig.fetchText(api + "?ac=list", perTimeout));
-						JSONArray cls = j.optJSONArray("class");
-						if (cls != null) {
-							for (int k = 0; k < cls.length(); k++) {
-								JSONObject c = cls.optJSONObject(k);
-								if (c == null) {
-									continue;
-								}
-								catList.add(new String[] { c.optString("type_id"), c.optString("type_name") });
-							}
-						}
-					} catch (Exception e) {
-					}
-					synchronized (mAllCats) {
-						mAllCats[idx] = catList;
-					}
-					latch.countDown();
-				}
-			}, "tvbox-cats-" + idx).start();
-		}
+		mLoading.setText("正在加载片源…");
 		new Thread(new Runnable() {
 			@Override
 			public void run() {
-				try {
-					latch.await(12, TimeUnit.SECONDS);
-				} catch (Exception e) {
-				}
-				if (seq != mCatSeq) {
-					return;
-				}
-				// 选取分类数最多的站点作为展示基准
-				int displayIdx = 0;
-				int maxCats = 0;
-				for (int i = 0; i < mAllCats.length; i++) {
-					if (mAllCats[i] != null && mAllCats[i].size() > maxCats) {
-						maxCats = mAllCats[i].size();
-						displayIdx = i;
+				final ArrayList<SpiderSite> sites = TvBoxConfig.getSpiders(NetVodActivity.this);
+				final ArrayList<Spider> spiders = new ArrayList<Spider>();
+				if (sites != null) {
+					for (int i = 0; i < sites.size(); i++) {
+						Spider sp = null;
+						try {
+							sp = SpiderEngine.get().getSpider(sites.get(i));
+						} catch (Exception e) {
+							sp = null;
+						}
+						spiders.add(sp);
 					}
 				}
-				final ArrayList<String[]> displayCats = mAllCats[displayIdx];
-				// 每站按 presetCat 匹配 type_id
-				for (int i = 0; i < mAllCats.length; i++) {
-					mSiteTypeIds[i] = matchTypeId(mAllCats[i], mPresetCat);
-				}
-				mCurCatName = mPresetCat.length() > 0 ? mPresetCat : "全部";
-				final int fActiveIdx = presetCatIndex(displayCats);
 				mUi.post(new Runnable() {
 					@Override
 					public void run() {
-						if (seq != mCatSeq) {
+						mLoading.setText("正在加载片源…");
+						if (sites == null || sites.isEmpty()) {
+							Toast.makeText(NetVodActivity.this, "片源加载失败，请检查网络或配置", Toast.LENGTH_LONG).show();
+							finish();
 							return;
 						}
-						mDisplayCats = displayCats;
-						mTypeName = displayCats.get(fActiveIdx)[1];
-						buildCatRow(displayCats, fActiveIdx);
-						loadList();
+						mSites = sites;
+						mSpiders = spiders;
+						mSiteIdx = SITE_ALL;
+						buildSiteRow();
+						loadCategories();
 					}
 				});
 			}
-		}, "tvbox-cats-wait").start();
-	}
-
-	/** 按分类名称在某站分类列表中匹配 type_id（含别名回退），匹配不到返回""（全部） */
-	private String matchTypeId(ArrayList<String[]> cats, String catName) {
-		if (cats == null || catName == null || catName.length() == 0) {
-			return "";
-		}
-		for (String[] c : cats) {
-			if (c[1].contains(catName)) {
-				return c[0];
-			}
-		}
-		// 别名回退
-		if ("电视剧".equals(catName)) {
-			for (String[] c : cats) {
-				if (c[1].contains("连续剧") || c[1].contains("剧集")) {
-					return c[0];
-				}
-			}
-		}
-		return "";// 无匹配：用"全部"
+		}, "vod-sites").start();
 	}
 
 	private void buildSiteRow() {
 		mSiteRow.removeAllViews();
+		Button all = makeChip("全部源", mSiteIdx == SITE_ALL);
+		all.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				if (mSiteIdx != SITE_ALL) {
+					mSiteIdx = SITE_ALL;
+					mPage = 1;
+					mKeyword = "";
+					mSearchInput.setText("");
+					buildSiteRow();
+					loadCategories();
+				}
+			}
+		});
+		mSiteRow.addView(all);
 		for (int i = 0; i < mSites.size(); i++) {
 			final int idx = i;
-			Button b = makeChip(mSites.get(i).name, i == mSiteIdx);
+			SpiderSite s = mSites.get(i);
+			Button b = makeChip(s.name + kindTag(s), i == mSiteIdx);
 			b.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
 					if (idx != mSiteIdx) {
 						mSiteIdx = idx;
 						mPage = 1;
+						mKeyword = "";
+						mSearchInput.setText("");
 						buildSiteRow();
+						loadCategories();
 					}
 				}
 			});
@@ -371,55 +316,153 @@ public class NetVodActivity extends Activity {
 		}
 	}
 
-	private void buildCatRow(final ArrayList<String[]> cats, int activeIdx) {
-		mCatRow.removeAllViews();
-		for (int i = 0; i < cats.size(); i++) {
-			final int idx = i;
-			Button b = makeChip(cats.get(i)[1], i == activeIdx);
-			b.setOnClickListener(new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					mTypeName = cats.get(idx)[1];
-					mPage = 1;
-					selectCat(cats, idx);
-				}
-			});
-			b.setTag(i);
-			mCatRow.addView(b);
+	private String kindTag(SpiderSite s) {
+		if (s.isPy()) {
+			return "  PY";
 		}
-		mCatRow.setTag(cats);
+		if (s.isJs()) {
+			return "  JS";
+		}
+		return "";
 	}
 
-	private void selectCat(ArrayList<String[]> cats, int activeIdx) {
-		// 更新视觉选中状态
-		for (int i = 0; i < mCatRow.getChildCount(); i++) {
-			View v = mCatRow.getChildAt(i);
-			boolean active = (i == activeIdx);
-			v.setBackgroundColor(active ? 0xFF4FC3F7 : 0xFF2A313D);
-			((TextView) v).setTextColor(active ? 0xFF12151C : 0xFFE6E9EE);
+	/* ==================== 分类 ==================== */
+
+	/** 并行取回参与聚合的各源分类，合并出展示分类行 */
+	private void loadCategories() {
+		mLoading.setVisibility(View.VISIBLE);
+		mLoading.setText("正在加载分类…");
+		final int seq = ++mCatSeq;
+		final int from = mSiteIdx == SITE_ALL ? 0 : mSiteIdx;
+		final int to = mSiteIdx == SITE_ALL ? mSites.size() : mSiteIdx + 1;
+		final int n = to - from;
+		if (n <= 0) {
+			mLoading.setVisibility(View.GONE);
+			return;
 		}
-		// 更新每站 type_id：按所选分类名跨站匹配
-		String catName = cats.get(activeIdx)[1];
-		mCurCatName = catName;
-		if (mAllCats != null && mSiteTypeIds != null) {
-			for (int i = 0; i < mAllCats.length; i++) {
-				mSiteTypeIds[i] = matchTypeId(mAllCats[i], catName);
+		final ArrayList<ArrayList<String[]>> cats = new ArrayList<ArrayList<String[]>>();
+		for (int i = 0; i < n; i++) {
+			cats.add(null);
+		}
+		final CountDownLatch latch = new CountDownLatch(n);
+		for (int i = 0; i < n; i++) {
+			final int slot = i;
+			final int siteIdx = from + i;
+			new Thread(new Runnable() {
+				@Override
+				public void run() {
+					ArrayList<String[]> list = new ArrayList<String[]>();
+					list.add(new String[] { "", "全部" });
+					Spider sp = (siteIdx >= 0 && siteIdx < mSpiders.size()) ? mSpiders.get(siteIdx) : null;
+					if (sp != null) {
+						try {
+							JSONArray arr = SpiderApi.homeClasses(sp, true);
+							for (int k = 0; k < arr.length(); k++) {
+								JSONObject c = arr.optJSONObject(k);
+								if (c == null) {
+									continue;
+								}
+								String tid = c.optString("type_id");
+								String tname = c.optString("type_name");
+								if (tname.length() > 0) {
+									list.add(new String[] { tid, tname });
+								}
+							}
+						} catch (Exception e) {
+						}
+					}
+					synchronized (cats) {
+						cats.set(slot, list);
+					}
+					latch.countDown();
+				}
+			}, "vod-cats-" + siteIdx).start();
+		}
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					latch.await(LIST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+				} catch (Exception e) {
+				}
+				if (seq != mCatSeq) {
+					return;
+				}
+				final ArrayList<ArrayList<String[]>> fCats = new ArrayList<ArrayList<String[]>>(cats);
+				mUi.post(new Runnable() {
+					@Override
+					public void run() {
+						if (seq != mCatSeq) {
+							return;
+						}
+						mSiteCats = fCats;
+						mDisplayCats = mergeCats(fCats, mSiteIdx == SITE_ALL);
+						int active = matchCatIndex(mDisplayCats, mPresetCat);
+						mCurCatName = mDisplayCats.get(active)[1];
+						buildCatRow(active);
+						loadList();
+					}
+				});
+			}
+		}, "vod-cats-wait").start();
+	}
+
+	/**
+	 * 合并分类行。聚合模式下把所有源的同名分类并成一项（type_id 留空，查询时按名字逐站匹配）。
+	 */
+	private ArrayList<String[]> mergeCats(ArrayList<ArrayList<String[]>> cats, boolean aggregate) {
+		ArrayList<String[]> out = new ArrayList<String[]>();
+		out.add(new String[] { "", "全部" });
+		if (!aggregate) {
+			if (cats != null && !cats.isEmpty() && cats.get(0) != null) {
+				for (String[] c : cats.get(0)) {
+					out.add(c);
+				}
+			}
+			return out;
+		}
+		HashSet<String> seen = new HashSet<String>();
+		seen.add("全部");
+		if (cats == null) {
+			return out;
+		}
+		for (ArrayList<String[]> perSite : cats) {
+			if (perSite == null) {
+				continue;
+			}
+			for (String[] c : perSite) {
+				String name = c[1];
+				if (name.length() == 0) {
+					continue;
+				}
+				String canon = canonCat(name);
+				if (seen.add(canon)) {
+					// 聚合项的 type_id 留空，loadList 时按分类名逐站匹配
+					out.add(new String[] { "", name });
+				}
 			}
 		}
-		loadList();
+		return out;
 	}
 
-	/** 按入口预设关键词匹配分类下标（含别名回退），匹配不到返回 0（全部） */
-	private int presetCatIndex(ArrayList<String[]> cats) {
-		if (mPresetCat.length() == 0) {
+	/** 分类名归一，用于跨源合并同一分类（如 电影 / 影视 / 电影片） */
+	private String canonCat(String name) {
+		String s = name.replace("片", "").replace("剧", "").replace("集", "");
+		s = s.replace("连续", "").replace("综艺", "综艺");
+		return s.replace(" ", "").replace("　", "");
+	}
+
+	/** 按名称（含别名）在分类行中定位下标，找不到返回 0（全部） */
+	private int matchCatIndex(ArrayList<String[]> cats, String want) {
+		if (want == null || want.length() == 0 || cats == null || cats.isEmpty()) {
 			return 0;
 		}
 		for (int i = 1; i < cats.size(); i++) {
-			if (cats.get(i)[1].contains(mPresetCat)) {
+			if (cats.get(i)[1].contains(want) || canonCat(cats.get(i)[1]).contains(canonCat(want))) {
 				return i;
 			}
 		}
-		if ("电视剧".equals(mPresetCat)) {
+		if ("电视剧".equals(want)) {
 			for (int i = 1; i < cats.size(); i++) {
 				String n = cats.get(i)[1];
 				if (n.contains("连续剧") || n.contains("剧集")) {
@@ -427,73 +470,131 @@ public class NetVodActivity extends Activity {
 				}
 			}
 		}
+		if ("电影".equals(want)) {
+			for (int i = 1; i < cats.size(); i++) {
+				if (cats.get(i)[1].contains("影视")) {
+					return i;
+				}
+			}
+		}
 		return 0;
 	}
 
-	/* ==================== 列表 ==================== */
+	private void buildCatRow(final int activeIdx) {
+		mCatRow.removeAllViews();
+		for (int i = 0; i < mDisplayCats.size(); i++) {
+			final int idx = i;
+			Button b = makeChip(mDisplayCats.get(i)[1], i == activeIdx);
+			b.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					mCurCatName = mDisplayCats.get(idx)[1];
+					mTypeName = mCurCatName;
+					mPage = 1;
+					buildCatRow(idx);
+					loadList();
+				}
+			});
+			mCatRow.addView(b);
+		}
+	}
 
-	/** 并行查询所有站点，合并结果，每条注入 _site_idx 以便详情时回溯来源 API */
+	/** 在某站分类里按名字找 type_id，聚合模式逐站匹配；找不到返回空串（该站用推荐） */
+	private String typeIdOf(int siteSlot, String catName) {
+		if (catName == null || catName.length() == 0 || "全部".equals(catName)) {
+			return "";
+		}
+		ArrayList<String[]> perSite = (siteSlot >= 0 && siteSlot < mSiteCats.size()) ? mSiteCats.get(siteSlot) : null;
+		if (perSite == null) {
+			return "";
+		}
+		String want = canonCat(catName);
+		for (String[] c : perSite) {
+			if (c[1].equals(catName)) {
+				return c[0];
+			}
+		}
+		for (String[] c : perSite) {
+			if (canonCat(c[1]).equals(want)) {
+				return c[0];
+			}
+		}
+		return "";
+	}
+
+	/* ==================== 列表聚合 ==================== */
+
+	/** 并行查询参与聚合的各源，按归一化片名合并为一部影片一条记录 */
 	private void loadList() {
 		mLoading.setVisibility(View.VISIBLE);
+		mLoading.setText("加载中…");
 		final int seq = ++mListSeq;
-		final int n = mSites.size();
-		final int page = mPage;
+		final int from = mSiteIdx == SITE_ALL ? 0 : mSiteIdx;
+		final int to = mSiteIdx == SITE_ALL ? mSites.size() : mSiteIdx + 1;
+		final int n = to - from;
+		if (n <= 0) {
+			mLoading.setVisibility(View.GONE);
+			return;
+		}
 		final String kw = mKeyword;
-		final ArrayList<JSONObject> merged = new ArrayList<JSONObject>();
+		final String cat = mCurCatName;
+		final int page = mPage;
+		final Map<String, VodFilm> films = VodFilm.newMap();
 		final int[] pagecounts = new int[n];
 		for (int i = 0; i < n; i++) {
 			pagecounts[i] = 1;
 		}
 		final CountDownLatch latch = new CountDownLatch(n);
 		for (int i = 0; i < n; i++) {
-			final int idx = i;
-			final String api = mSites.get(i).api;
-			final String typeId = (mSiteTypeIds != null && idx < mSiteTypeIds.length) ? mSiteTypeIds[idx] : "";
+			final int slot = i;
+			final int siteIdx = from + i;
 			new Thread(new Runnable() {
 				@Override
 				public void run() {
-					StringBuilder url = new StringBuilder(api).append("?ac=videolist&pg=").append(page);
-					if (typeId != null && typeId.length() > 0) {
-						url.append("&t=").append(typeId);
+					Spider sp = (siteIdx >= 0 && siteIdx < mSpiders.size()) ? mSpiders.get(siteIdx) : null;
+					if (sp == null) {
+						latch.countDown();
+						return;
 					}
-					if (kw != null && kw.length() > 0) {
-						try {
-							url.append("&wd=").append(URLEncoder.encode(kw, "UTF-8"));
-						} catch (Exception e) {
-							url.append("&wd=").append(kw);
-						}
-					}
+					SpiderSite site = mSites.get(siteIdx);
+					JSONObject ret = null;
 					try {
-						JSONObject j = new JSONObject(TvBoxConfig.fetchText(url.toString(), 8000));
-						JSONArray list = j.optJSONArray("list");
-						int pc = Math.max(1, j.optInt("pagecount", 1));
-						synchronized (merged) {
-							pagecounts[idx] = pc;
-							if (list != null) {
-								for (int k = 0; k < list.length(); k++) {
-									JSONObject it = list.optJSONObject(k);
-									if (it == null) {
-										continue;
-									}
-									try {
-										it.put("_site_idx", idx);
-									} catch (Exception e) {
-									}
-									merged.add(it);
-								}
+						if (kw != null && kw.length() > 0) {
+							ret = SpiderApi.search(sp, kw, false);
+						} else {
+							String tid = typeIdOf(slot, cat);
+							if (tid != null && tid.length() > 0) {
+								ret = SpiderApi.category(sp, tid, String.valueOf(page), false, null);
+							} else if ("全部".equals(cat)) {
+								ret = SpiderApi.homeVideo(sp);
+							} else {
+								// 该站没有此分类，用推荐兜底
+								ret = SpiderApi.homeVideo(sp);
 							}
 						}
 					} catch (Exception e) {
+						ret = null;
+					}
+					JSONArray list = ret == null ? null : ret.optJSONArray("list");
+					int pc = ret == null ? 1 : Math.max(1, ret.optInt("pagecount", 1));
+					synchronized (films) {
+						pagecounts[slot] = pc;
+						if (list != null) {
+							for (int k = 0; k < list.length(); k++) {
+								JSONObject v = list.optJSONObject(k);
+								VodFilm.put(films, v, site.key, site.name);
+							}
+						}
 					}
 					latch.countDown();
 				}
-			}, "tvbox-list-" + idx).start();
+			}, "vod-list-" + siteIdx).start();
 		}
 		new Thread(new Runnable() {
 			@Override
 			public void run() {
 				try {
-					latch.await(12, TimeUnit.SECONDS);
+					latch.await(LIST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 				} catch (Exception e) {
 				}
 				if (seq != mListSeq) {
@@ -505,10 +606,7 @@ public class NetVodActivity extends Activity {
 						maxPc = pc;
 					}
 				}
-				final JSONArray fList = new JSONArray();
-				for (JSONObject it : merged) {
-					fList.put(it);
-				}
+				final ArrayList<VodFilm> merged = new ArrayList<VodFilm>(films.values());
 				final int fPc = maxPc;
 				mUi.post(new Runnable() {
 					@Override
@@ -517,23 +615,22 @@ public class NetVodActivity extends Activity {
 							return;
 						}
 						mLoading.setVisibility(View.GONE);
-						mList = fList;
+						mFilms = merged;
 						mPageCount = fPc;
 						if (mPage > mPageCount) {
 							mPage = mPageCount;
 						}
 						mPageInfo.setText(mPage + " / " + mPageCount);
 						mAdapter.notifyDataSetChanged();
-						if (fList.length() == 0) {
+						if (merged.isEmpty()) {
 							Toast.makeText(NetVodActivity.this, "没有找到相关影片", Toast.LENGTH_SHORT).show();
 						}
-						// 首页推荐位进入：自动打开指定影片详情（仅一次）
-						if (mOpenVodId != null) {
-							String want = mOpenVodId;
-							mOpenVodId = null;
-							for (int k = 0; k < fList.length(); k++) {
-								JSONObject it = fList.optJSONObject(k);
-								if (it != null && want.equals(it.optString("vod_id"))) {
+						// 首页推荐位进入：按片名搜索并自动打开第一个匹配
+						if (mOpenVodTitle != null) {
+							String want = VodFilm.normalize(mOpenVodTitle);
+							mOpenVodTitle = null;
+							for (int k = 0; k < merged.size(); k++) {
+								if (want.equals(VodFilm.normalize(merged.get(k).title))) {
 									openDetail(k);
 									break;
 								}
@@ -542,281 +639,270 @@ public class NetVodActivity extends Activity {
 					}
 				});
 			}
-		}, "tvbox-list-wait").start();
+		}, "vod-list-wait").start();
 	}
 
-	/* ==================== 详情 ==================== */
+	/* ==================== 详情：多线路 ==================== */
 
 	private void openDetail(int position) {
-		try {
-			JSONObject v = mList.getJSONObject(position);
-			mVodId = v.optString("vod_id");
-			mVodName = v.optString("vod_name");
-			mVodPic = v.optString("vod_pic");
-			// 从列表项读取来源站点下标（并行 loadList 注入），定位详情 API
-			int sidx = v.optInt("_site_idx", mSiteIdx);
-			if (sidx >= 0 && sidx < mSites.size()) {
-				mSiteIdx = sidx;
-			}
-			if (mTypeName == null || mTypeName.length() == 0) {
-				mTypeName = v.optString("type_name", "其它");
-			}
-		} catch (Exception e) {
+		if (position < 0 || position >= mFilms.size()) {
 			return;
 		}
-		mDetailPanel.setVisibility(View.VISIBLE);
-		mDetailName.setText(mVodName);
-		mDetailDirector.setText("");
-		mDetailActors.setText("");
-		mDetailArea.setText("");
-		mDetailYear.setText("");
-		mDetailType.setText("");
-		mDetailRemarks.setText("");
-		mDetailIntro.setText("");
-		mDetailSources.removeAllViews();
-		mDetailEpisodes.setAdapter(null);
-		loadPic(mVodPic, mDetailPic);
-		final String api = mSites.get(mSiteIdx).api;
-		new Thread(new Runnable() {
-			@Override
-			public void run() {
-				JSONObject detail = null;
-				try {
-					String body = api + "?ac=videolist&ids=" + mVodId;
-					JSONObject j = new JSONObject(TvBoxConfig.fetchText(body, 15000));
-					JSONArray list = j.optJSONArray("list");
-					if (list != null && list.length() > 0) {
-						detail = list.optJSONObject(0);
-					}
-				} catch (Exception e) {
-				}
-				final JSONObject fDetail = detail;
-				mUi.post(new Runnable() {
-					@Override
-					public void run() {
-						showDetail(fDetail);
-					}
-				});
-			}
-		}, "tvbox-detail").start();
-	}
-
-	/** 按影片 id 直接打开详情面板（搜索跳转，目标片可能不在当前列表页） */
-	private void openDetailById(final String vodId) {
-		mVodId = vodId;
-		mVodName = "";
-		mVodPic = "";
-		mDetailPanel.setVisibility(View.VISIBLE);
-		mDetailName.setText("加载中...");
-		mDetailDirector.setText("");
-		mDetailActors.setText("");
-		mDetailArea.setText("");
-		mDetailYear.setText("");
-		mDetailType.setText("");
-		mDetailRemarks.setText("");
-		mDetailIntro.setText("");
-		mDetailSources.removeAllViews();
-		mDetailEpisodes.setAdapter(null);
-		final String api = mSites.get(mSiteIdx).api;
-		new Thread(new Runnable() {
-			@Override
-			public void run() {
-				JSONObject detail = null;
-				try {
-					String body = api + "?ac=videolist&ids=" + vodId;
-					JSONObject j = new JSONObject(TvBoxConfig.fetchText(body, 15000));
-					JSONArray list = j.optJSONArray("list");
-					if (list != null && list.length() > 0) {
-						detail = list.optJSONObject(0);
-					}
-				} catch (Exception e) {
-				}
-				final JSONObject fDetail = detail;
-				mUi.post(new Runnable() {
-					@Override
-					public void run() {
-						if (fDetail == null) {
-							mDetailName.setText("详情加载失败");
-							return;
-						}
-						mVodName = fDetail.optString("vod_name");
-						mVodPic = fDetail.optString("vod_pic");
-						mDetailName.setText(mVodName);
-						loadPic(mVodPic, mDetailPic);
-						showDetail(fDetail);
-					}
-				});
-			}
-		}, "tvbox-detail-direct").start();
-	}
-
-	private void showDetail(JSONObject detail) {
-		if (detail == null) {
-			mDetailDirector.setText("加载失败，请重试");
-			return;
-		}
-		mDetailDirector.setText("导演：" + detail.optString("vod_director"));
-		mDetailActors.setText("主演：" + detail.optString("vod_actor"));
-		mDetailArea.setText("地区：" + detail.optString("vod_area"));
-		mDetailYear.setText("年代：" + detail.optString("vod_year"));
-		mDetailType.setText("类型：" + detail.optString("vod_class"));
-		mDetailRemarks.setText("备注：" + detail.optString("vod_remarks"));
-		String intro = detail.optString("vod_content", detail.optString("vod_blurb"));
-		mDetailIntro.setText(intro.replaceAll("<[^>]+>", "").trim());
-
-		mLines = parseCmsLines(detail.optString("vod_play_from", ""),
-				detail.optString("vod_play_url", ""));
+		final VodFilm film = mFilms.get(position);
+		mVodName = film.title;
+		mVodPic = film.pic;
+		mLines = new ArrayList<Line>();
 		mLineIdx = 0;
 		buildLineRow();
-		buildEpisodeRow();
+		buildEpisodeGrid();
+		// 先用列表项里已有的元信息填充，随后用详情覆盖
+		mDetailName.setText(film.title);
+		mDetailDirector.setText("");
+		mDetailActors.setText("");
+		mDetailArea.setText("");
+		mDetailYear.setText(film.year == null || film.year.length() == 0 ? "" : "年代：" + film.year);
+		mDetailType.setText("");
+		mDetailRemarks.setText("线路：" + film.lineCount() + " 个源");
+		mDetailIntro.setText("");
+		loadPic(film.pic, mDetailPic);
+		mDetailPanel.setVisibility(View.VISIBLE);
+		mLoading.setText("正在获取线路…");
+
+		final int n = film.refs.size();
+		final CountDownLatch latch = new CountDownLatch(n);
+		final ArrayList<Line> collected = new ArrayList<Line>();
+		final JSONObject[] firstDetail = new JSONObject[1];
+		for (int i = 0; i < n; i++) {
+			final VodFilm.Ref ref = film.refs.get(i);
+			new Thread(new Runnable() {
+				@Override
+				public void run() {
+					Spider sp = spiderOf(ref.siteKey);
+					if (sp != null && ref.vodId != null && ref.vodId.length() > 0) {
+						try {
+							JSONObject detail = SpiderApi.detail(sp, ref.vodId);
+							ArrayList<SpiderApi.Line> sl = SpiderApi.lines(detail);
+							synchronized (collected) {
+								for (SpiderApi.Line l : sl) {
+									Line line = new Line();
+									line.siteKey = ref.siteKey;
+									line.siteName = ref.siteName;
+									line.flag = l.getFlag();
+									line.items = l.getItems();
+									if (!line.items.isEmpty()) {
+										collected.add(line);
+									}
+								}
+								if (firstDetail[0] == null && detail != null && detail.length() > 0) {
+									firstDetail[0] = detail;
+								}
+							}
+						} catch (Exception e) {
+						}
+					}
+					latch.countDown();
+				}
+			}, "vod-detail-" + i).start();
+		}
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					latch.await(DETAIL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+				} catch (Exception e) {
+				}
+				final ArrayList<Line> fLines = new ArrayList<Line>(collected);
+				final JSONObject fDetail = firstDetail[0];
+				mUi.post(new Runnable() {
+					@Override
+					public void run() {
+						if (fLines.isEmpty()) {
+							Toast.makeText(NetVodActivity.this, "该影片暂无可用线路", Toast.LENGTH_SHORT).show();
+							return;
+						}
+						mLines = fLines;
+						mLineIdx = 0;
+						buildLineRow();
+						buildEpisodeGrid();
+						applyDetail(fDetail);
+						mLoading.setText("加载中…");
+					}
+				});
+			}
+		}, "vod-detail-wait").start();
 	}
 
-	/** 解析 CMS 播放字段（$$$ 分线路 / # 分集 / $ 分集名地址） */
-	private static ArrayList<Line> parseCmsLines(String from, String url) {
-		ArrayList<Line> lines = new ArrayList<Line>();
-		String[] froms = from.split("\\$\\$\\$");
-		String[] urls = url.split("\\$\\$\\$");
-		for (int i = 0; i < urls.length; i++) {
-			Line line = new Line();
-			line.name = i < froms.length && froms[i].length() > 0 ? froms[i] : "线路" + (i + 1);
-			for (String seg : urls[i].split("#")) {
-				seg = seg.trim();
-				if (seg.length() == 0) {
-					continue;
-				}
-				int p = seg.indexOf('$');
-				if (p > -1) {
-					String u = seg.substring(p + 1).trim();
-					if (u.startsWith("http://") || u.startsWith("https://")) {
-						line.eps.add(new String[] { seg.substring(0, p).trim(), u });
-					}
-				} else if (seg.startsWith("http://") || seg.startsWith("https://")) {
-					line.eps.add(new String[] { "播放", seg });
-				}
-			}
-			if (!line.eps.isEmpty()) {
-				lines.add(line);
+	private Spider spiderOf(String siteKey) {
+		if (siteKey == null) {
+			return null;
+		}
+		for (int i = 0; i < mSites.size(); i++) {
+			if (siteKey.equals(mSites.get(i).key)) {
+				return (i < mSpiders.size()) ? mSpiders.get(i) : null;
 			}
 		}
-		return lines;
+		return null;
+	}
+
+	private void applyDetail(JSONObject d) {
+		if (d == null) {
+			return;
+		}
+		mVodName = d.optString("vod_name", mVodName);
+		mDetailName.setText(mVodName);
+		mDetailDirector.setText(label("导演：", d.optString("vod_director")));
+		mDetailActors.setText(label("主演：", d.optString("vod_actor")));
+		mDetailArea.setText(label("地区：", d.optString("vod_area")));
+		mDetailYear.setText(label("年代：", d.optString("vod_year")));
+		mDetailType.setText(label("类型：", d.optString("vod_class")));
+		mDetailRemarks.setText(label("备注：", d.optString("vod_remarks")));
+		String intro = d.optString("vod_content");
+		if (intro == null || intro.length() == 0) {
+			intro = d.optString("vod_blurb");
+		}
+		if (intro != null) {
+			mDetailIntro.setText(intro.replaceAll("<[^>]+>", "").trim());
+		}
+		String pic = d.optString("vod_pic");
+		if (pic != null && pic.length() > 0) {
+			mVodPic = pic;
+			loadPic(pic, mDetailPic);
+		}
+	}
+
+	private String label(String prefix, String value) {
+		if (value == null || value.length() == 0) {
+			return "";
+		}
+		return prefix + value;
 	}
 
 	private void buildLineRow() {
 		mDetailSources.removeAllViews();
-		if (mLines == null || mLines.isEmpty()) {
-			return;
-		}
 		for (int i = 0; i < mLines.size(); i++) {
 			final int idx = i;
+			Line l = mLines.get(i);
 			RadioButton rb = new RadioButton(this);
-			rb.setText(mLines.get(i).name);
-			rb.setTextColor(0xFFFFFFFF);
+			rb.setText(l.siteName + " · " + l.flag + "(" + l.items.size() + ")");
+			rb.setTextSize(12);
 			rb.setButtonDrawable(null);
-			rb.setPadding(16, 4, 16, 4);
-			rb.setGravity(Gravity.CENTER);
+			rb.setTextColor(i == mLineIdx ? 0xFF12151C : 0xFFE6E9EE);
 			rb.setBackgroundColor(i == mLineIdx ? 0xFF4FC3F7 : 0xFF2A313D);
+			rb.setPadding(16, 6, 16, 6);
 			rb.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
-					mLineIdx = idx;
-					buildLineRow();
-					buildEpisodeRow();
+					if (idx != mLineIdx) {
+						mLineIdx = idx;
+						buildLineRow();
+						buildEpisodeGrid();
+					}
 				}
 			});
 			RadioGroup.LayoutParams lp = new RadioGroup.LayoutParams(
-					ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+					RadioGroup.LayoutParams.WRAP_CONTENT, RadioGroup.LayoutParams.WRAP_CONTENT);
 			lp.rightMargin = 8;
-			mDetailSources.addView(rb, lp);
+			rb.setLayoutParams(lp);
+			mDetailSources.addView(rb, mDetailSources.getChildCount());
 		}
 	}
 
-	private void buildEpisodeRow() {
-		if (mLines == null || mLines.isEmpty()) {
-			mDetailEpisodes.setAdapter(null);
-			return;
-		}
-		mDetailEpisodes.setAdapter(new EpisodeAdapter());
+	private void buildEpisodeGrid() {
+		EpisodeAdapter a = new EpisodeAdapter();
+		mDetailEpisodes.setAdapter(a);
 	}
 
-	private class EpisodeAdapter extends BaseAdapter {
-		@Override
-		public int getCount() {
-			if (mLines == null || mLines.isEmpty()) {
-				return 0;
-			}
-			return mLines.get(mLineIdx).eps.size();
-		}
-
-		@Override
-		public Object getItem(int position) {
-			return null;
-		}
-
-		@Override
-		public long getItemId(int position) {
-			return position;
-		}
-
-		@Override
-		public View getView(int position, View convertView, ViewGroup parent) {
-			TextView tv;
-			if (convertView instanceof TextView) {
-				tv = (TextView) convertView;
-			} else {
-				tv = new TextView(NetVodActivity.this);
-				tv.setPadding(12, 8, 12, 8);
-				tv.setTextColor(0xFFFFFFFF);
-				tv.setTextSize(13);
-				tv.setGravity(Gravity.CENTER);
-				tv.setBackgroundColor(0xFF2A313D);
-			}
-			tv.setText(mLines.get(mLineIdx).eps.get(position)[0]);
-			return tv;
-		}
-	}
+	/* ==================== 播放 ==================== */
 
 	private void playAt(int idx) {
-		if (mLines == null || mLines.isEmpty()) {
+		if (mLines.isEmpty()) {
+			Toast.makeText(this, "请先选择线路", Toast.LENGTH_SHORT).show();
 			return;
 		}
-		ArrayList<String[]> eps = mLines.get(mLineIdx).eps;
-		if (idx < 0 || idx >= eps.size()) {
+		if (mLineIdx < 0 || mLineIdx >= mLines.size()) {
 			return;
 		}
-		ArrayList<VideoInfo> infos = new ArrayList<VideoInfo>();
-		for (String[] ep : eps) {
+		final Line line = mLines.get(mLineIdx);
+		if (idx < 0 || idx >= line.items.size()) {
+			return;
+		}
+		final SpiderApi.Item item = line.items.get(idx);
+		final ArrayList<VideoInfo> infos = new ArrayList<VideoInfo>();
+		for (SpiderApi.Item it : line.items) {
 			VideoInfo info = new VideoInfo();
-			info.title = ep[0];
-			info.url = ep[1];
+			info.title = it.name;
+			info.url = it.id;
 			infos.add(info);
 		}
-		String raw = eps.get(idx)[1];
-		String playUrl = VideoList.getProxiedUrl(raw);
-		boolean web = VideoList.shouldUseWebPlayer(playUrl);
-		if (web) {
-			// 网页/分享地址 -> XWalk 网页播放
-			for (VideoInfo info : infos) {
-				info.url = VideoList.getProxiedUrl(info.url);
+		if (item.id != null && item.id.startsWith("http")) {
+			launchPlayer(item.id, infos, idx);
+			return;
+		}
+		// 交给所属源的 playerContent 解析
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				Spider sp = spiderOf(line.siteKey);
+				SpiderApi.PlayUrl pu = null;
+				if (sp != null) {
+					try {
+						pu = SpiderApi.play(sp, line.flag, item.id, new ArrayList<String>());
+					} catch (Exception e) {
+						pu = null;
+					}
+				}
+				final SpiderApi.PlayUrl fPu = pu;
+				mUi.post(new Runnable() {
+					@Override
+					public void run() {
+						if (fPu == null || fPu.url == null || fPu.url.length() == 0) {
+							Toast.makeText(NetVodActivity.this, "解析失败，请换一条线路", Toast.LENGTH_SHORT).show();
+							return;
+						}
+						// 解析器声明需要嗅探/网页解析时，强制走网页播放器
+						boolean web = fPu.parse != 0 || VideoList.shouldUseWebPlayer(fPu.url);
+						ArrayList<VideoInfo> playInfos = new ArrayList<VideoInfo>();
+						for (VideoInfo v : infos) {
+							VideoInfo c = new VideoInfo();
+							c.title = v.title;
+							c.url = v.url;
+							playInfos.add(c);
+						}
+						playInfos.get(idx).url = fPu.url;
+						startPlayer(fPu.url, playInfos, idx, web);
+					}
+				});
 			}
+		}, "vod-play").start();
+	}
+
+	private void launchPlayer(String url, ArrayList<VideoInfo> infos, int idx) {
+		String playUrl = VideoList.getProxiedUrl(url);
+		startPlayer(playUrl, infos, idx, VideoList.shouldUseWebPlayer(playUrl));
+	}
+
+	private void startPlayer(String url, ArrayList<VideoInfo> infos, int idx, boolean web) {
+		ArrayList<VideoInfo> send = new ArrayList<VideoInfo>();
+		for (VideoInfo v : infos) {
+			VideoInfo c = new VideoInfo();
+			c.title = v.title;
+			c.url = web ? VideoList.getProxiedUrl(v.url) : v.url;
+			send.add(c);
 		}
 		Intent it = new Intent();
-		if (web) {
-			it.setClass(this, WebVideoPlayerActivity.class);
-		} else {
-			it.setClass(this, NetVodPlayerActivity.class);
-		}
-		it.putParcelableArrayListExtra("videoinfo", infos);
+		it.setClass(this, web ? WebVideoPlayerActivity.class : NetVodPlayerActivity.class);
+		it.putParcelableArrayListExtra("videoinfo", send);
 		it.putExtra("albumPic", mVodPic);
 		it.putExtra("vodtype", mTypeName == null || mTypeName.length() == 0 ? "其它" : mTypeName);
-		it.putExtra("videoId", mVodId);
+		it.putExtra("videoId", mVodName);
 		it.putExtra("vodname", mVodName);
-		it.putExtra("sourceId", mSites.get(mSiteIdx).name);
+		it.putExtra("sourceId", mLineIdx >= 0 && mLineIdx < mLines.size() ? mLines.get(mLineIdx).siteName : "");
 		it.putExtra("playIndex", idx);
 		it.putExtra("collectionTime", 0);
 		startActivity(it);
 	}
 
-	/* ==================== 海报加载 ==================== */
+	/* ==================== 通用 ==================== */
 
 	private void loadPic(final String url, final ImageView view) {
 		if (url == null || url.length() == 0) {
@@ -833,36 +919,76 @@ public class NetVodActivity extends Activity {
 		new Thread(new Runnable() {
 			@Override
 			public void run() {
-				Bitmap bmp = null;
+				byte[] data = null;
 				try {
-					byte[] data = TvBoxConfig.fetchBytes(url, 10000);
-					if (data != null) {
-						bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
-					}
+					data = TvBoxConfig.fetchBytes(url, 10000);
 				} catch (Exception e) {
+					data = null;
 				}
-				if (bmp != null) {
-					mPicCache.put(url, bmp);
+				if (data == null || data.length == 0) {
+					return;
 				}
-				final Bitmap fBmp = bmp;
+				final Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+				if (bmp == null) {
+					return;
+				}
+				mPicCache.put(url, bmp);
 				mUi.post(new Runnable() {
 					@Override
 					public void run() {
 						if (url.equals(view.getTag())) {
-							view.setImageBitmap(fBmp);
+							view.setImageBitmap(bmp);
 						}
 					}
 				});
 			}
-		}, "tvbox-pic").start();
+		}, "vod-pic").start();
 	}
-
-	/* ==================== 列表适配器 ==================== */
 
 	private class GridAdapter extends BaseAdapter {
 		@Override
 		public int getCount() {
-			return mList.length();
+			return mFilms.size();
+		}
+
+		@Override
+		public VodFilm getItem(int position) {
+			return mFilms.get(position);
+		}
+
+		@Override
+		public long getItemId(int position) {
+			return position;
+		}
+
+		@Override
+		public View getView(int position, View convertView, ViewGroup parent) {
+			View v = convertView;
+			if (v == null) {
+				v = LayoutInflater.from(NetVodActivity.this).inflate(R.layout.net_vod_item, parent, false);
+			}
+			VodFilm f = mFilms.get(position);
+			((TextView) v.findViewById(R.id.net_item_name)).setText(f.title);
+			((TextView) v.findViewById(R.id.net_item_remarks)).setText(f.subtitle());
+			TextView lines = (TextView) v.findViewById(R.id.net_item_lines);
+			if (f.lineCount() > 1) {
+				lines.setVisibility(View.VISIBLE);
+				lines.setText(f.lineCount() + " 线路");
+			} else {
+				lines.setVisibility(View.GONE);
+			}
+			loadPic(f.pic, (ImageView) v.findViewById(R.id.net_item_pic));
+			return v;
+		}
+	}
+
+	private class EpisodeAdapter extends BaseAdapter {
+		@Override
+		public int getCount() {
+			if (mLineIdx < 0 || mLineIdx >= mLines.size()) {
+				return 0;
+			}
+			return mLines.get(mLineIdx).items.size();
 		}
 
 		@Override
@@ -877,21 +1003,23 @@ public class NetVodActivity extends Activity {
 
 		@Override
 		public View getView(int position, View convertView, ViewGroup parent) {
-			View v = convertView;
-			if (v == null) {
-				v = LayoutInflater.from(NetVodActivity.this).inflate(R.layout.net_vod_item, parent, false);
+			TextView tv = (TextView) convertView;
+			if (tv == null) {
+				tv = new TextView(NetVodActivity.this);
+				tv.setPadding(16, 10, 16, 10);
+				tv.setTextColor(0xFFFFFFFF);
+				tv.setTextSize(13);
+				tv.setGravity(Gravity.CENTER);
+				tv.setBackgroundColor(0xFF2A313D);
+				// GridView.LayoutParams 不支持 margin，用 padding 留出间距
+				GridView.LayoutParams lp = new GridView.LayoutParams(
+						GridView.LayoutParams.WRAP_CONTENT, GridView.LayoutParams.WRAP_CONTENT);
+				tv.setLayoutParams(lp);
 			}
-			JSONObject item = mList.optJSONObject(position);
-			if (item == null) {
-				return v;
+			if (mLineIdx >= 0 && mLineIdx < mLines.size()) {
+				tv.setText(mLines.get(mLineIdx).items.get(position).name);
 			}
-			ImageView pic = (ImageView) v.findViewById(R.id.net_item_pic);
-			TextView name = (TextView) v.findViewById(R.id.net_item_name);
-			TextView remarks = (TextView) v.findViewById(R.id.net_item_remarks);
-			name.setText(item.optString("vod_name"));
-			remarks.setText(item.optString("vod_remarks"));
-			loadPic(item.optString("vod_pic"), pic);
-			return v;
+			return tv;
 		}
 	}
 
@@ -902,5 +1030,12 @@ public class NetVodActivity extends Activity {
 			return true;
 		}
 		return super.onKeyDown(keyCode, event);
+	}
+
+	@Override
+	protected void onDestroy() {
+		super.onDestroy();
+		mListSeq++;
+		mCatSeq++;
 	}
 }

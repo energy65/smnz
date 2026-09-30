@@ -9,6 +9,10 @@ import com.shenma.tvlauncher.R;
 import com.shenma.tvlauncher.UserActivity;
 import com.shenma.tvlauncher.application.MyVolley;
 import com.shenma.tvlauncher.netsource.TvBoxConfig;
+import com.shenma.tvlauncher.spider.SpiderApi;
+import com.shenma.tvlauncher.spider.SpiderEngine;
+import com.shenma.tvlauncher.spider.SpiderSite;
+import com.github.catvod.crawler.Spider;
 import com.shenma.tvlauncher.utils.Logger;
 import com.shenma.tvlauncher.utils.ScaleAnimEffect;
 import com.shenma.tvlauncher.utils.Utils;
@@ -109,47 +113,56 @@ public class RecommendFragment extends BaseFragment implements OnFocusChangeList
 		//re_fls[0].requestFocus();
 	}
 	
-	//从 TVBox 网络点播源（forever.json 第一个站点）加载最新影视
+	//从爬虫片源（type=3）加载最新影视推荐
 	private void initData(){
-			imageLoader = MyVolley.getImageLoader();
-			new Thread(new Runnable() {
-				@Override
-				public void run() {
-					final ArrayList<RecItem> items = new ArrayList<RecItem>();
-					try {
-						ArrayList<TvBoxConfig.Site> sites = TvBoxConfig.getSites(context);
-						if (sites != null && !sites.isEmpty()) {
-							String api = sites.get(0).api;
-							JSONObject j = new JSONObject(TvBoxConfig.fetchText(api + "?ac=videolist&pg=1", 15000));
-							JSONArray list = j.optJSONArray("list");
-							if (list != null) {
-								for (int i = 0; i < list.length() && items.size() < 6; i++) {
-									JSONObject v = list.optJSONObject(i);
-									if (v == null) {
-										continue;
-									}
-									RecItem r = new RecItem();
-									r.id = v.optString("vod_id");
-									r.title = v.optString("vod_name");
-									r.pic = v.optString("vod_pic");
-									if (r.title.length() > 0) {
-										items.add(r);
+		imageLoader = MyVolley.getImageLoader();
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				final ArrayList<RecItem> items = new ArrayList<RecItem>();
+				try {
+					ArrayList<SpiderSite> sites = TvBoxConfig.getSpiders(context);
+					if (sites != null && !sites.isEmpty()) {
+						// 依次尝试前几个源，取第一个能出数据的
+						for (int i = 0; i < sites.size() && items.isEmpty() && i < 5; i++) {
+							Spider spider = SpiderEngine.get().getSpider(sites.get(i));
+							if (spider == null) {
+								continue;
+							}
+							try {
+								JSONObject j = SpiderApi.homeVideo(spider);
+								JSONArray list = j.optJSONArray("list");
+								if (list != null) {
+									for (int k = 0; k < list.length() && items.size() < 6; k++) {
+										JSONObject v = list.optJSONObject(k);
+										if (v == null) {
+											continue;
+										}
+										RecItem r = new RecItem();
+										r.id = v.optString("vod_id");
+										r.title = v.optString("vod_name");
+										r.pic = v.optString("vod_pic");
+										if (r.title.length() > 0) {
+											items.add(r);
+										}
 									}
 								}
+							} catch (Exception e) {
 							}
 						}
-					} catch (Exception e) {
 					}
-					if (home != null) {
-						home.runOnUiThread(new Runnable() {
-							@Override
-							public void run() {
-								showNetRecommend(items);
-							}
-						});
-					}
+				} catch (Exception e) {
 				}
-			}, "net-recommend").start();
+				if (home != null) {
+					home.runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							showNetRecommend(items);
+						}
+					});
+				}
+			}
+		}, "net-recommend").start();
 	}
 
 	//填充最新影视推荐位（iv_re_3~8 共 6 个格子）
@@ -169,12 +182,12 @@ public class RecommendFragment extends BaseFragment implements OnFocusChangeList
 		}
 	}
 
-	//点击推荐位：进入网络点播并自动打开该影片详情
+	//点击推荐位：进入网络点播并按片名聚合该影片的多条线路
 	private void openNetVod(int idx){
 		if (netData != null && idx < netData.size()) {
 			Intent i = new Intent();
 			i.setClass(home, com.shenma.tvlauncher.netsource.NetVodActivity.class);
-			i.putExtra("openVodId", netData.get(idx).id);
+			i.putExtra("openVodTitle", netData.get(idx).title);
 			startActivity(i);
 		}
 	}

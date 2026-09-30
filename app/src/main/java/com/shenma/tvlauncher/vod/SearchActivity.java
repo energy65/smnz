@@ -105,8 +105,8 @@ public class SearchActivity extends Activity {
                 Intent intent = new Intent(SearchActivity.this,
                         com.shenma.tvlauncher.netsource.NetVodActivity.class);
                 intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                intent.putExtra("openVodId", it.id);
-                intent.putExtra("presetSite", it.siteName);
+                // 聚合页按片名重新检索并展开该片的多条线路
+                intent.putExtra("openVodTitle", it.title);
                 startActivity(intent);
                 overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
             }
@@ -238,30 +238,7 @@ public class SearchActivity extends Activity {
                 final ArrayList<NetItem> out = new ArrayList<NetItem>();
                 final int[] totalPage = {1};
                 try {
-                    // 1. 搜索 CMS 站点
-                    ArrayList<TvBoxConfig.Site> sites = TvBoxConfig.getSites(context);
-                    if (sites != null && !sites.isEmpty()) {
-                        int n = sites.size();
-                        java.util.concurrent.CountDownLatch latch =
-                                new java.util.concurrent.CountDownLatch(n);
-                        for (int s = 0; s < n; s++) {
-                            final TvBoxConfig.Site site = sites.get(s);
-                            new Thread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    try {
-                                        queryOneSite(site, kw, page, isHan, out, totalPage);
-                                    } catch (Exception e) {
-                                    } finally {
-                                        latch.countDown();
-                                    }
-                                }
-                            }).start();
-                        }
-                        latch.await(remainMs(deadline), java.util.concurrent.TimeUnit.MILLISECONDS);
-                    }
-
-                    // 2. 搜索爬虫站点（仅首页，避免翻页时重复返回相同结果）
+                    // 只搜索爬虫源（type=1 CMS 已下线），并按归一化片名合并同一部影片
                     if (page == 1) {
                         ArrayList<SpiderSite> spiderSites = TvBoxConfig.getSpiders(context);
                         if (spiderSites != null && !spiderSites.isEmpty()) {
@@ -286,6 +263,7 @@ public class SearchActivity extends Activity {
                         }
                     }
                 } catch (Exception e) {}
+                final ArrayList<NetItem> merged = mergeByFilm(out);
                 final int fTotalPage = totalPage[0];
                 runOnUiThread(new Runnable() {
                     @Override
@@ -294,7 +272,7 @@ public class SearchActivity extends Activity {
                         mLoading = false;
                         closeProgressDialog();
                         mPageCount = fTotalPage;
-                        if (out.isEmpty()) {
+                        if (merged.isEmpty()) {
                             if (page == 1) {
                                 mAdapter.clear();
                                 tv_search_empty_text.setVisibility(View.VISIBLE);
@@ -302,8 +280,8 @@ public class SearchActivity extends Activity {
                             }
                             return;
                         }
-                        if (page == 1) mAdapter.setData(out);
-                        else mAdapter.addData(out);
+                        if (page == 1) mAdapter.setData(merged);
+                        else mAdapter.addData(merged);
                         tv_search_empty_text.setVisibility(View.GONE);
                     }
                 });
@@ -353,62 +331,47 @@ public class SearchActivity extends Activity {
         }
     }
 
-    /** 查询单个站点（在工作线程中调用，结果同步合并到 out） */
-    private void queryOneSite(TvBoxConfig.Site site, String kw, int page,
-            boolean isHan, ArrayList<NetItem> out, int[] totalPage) {
-        ArrayList<NetItem> siteResults = new ArrayList<NetItem>();
-        int sitePages = 1;
-        try {
-            if (isHan) {
-                String url = site.api + "?ac=videolist&wd=" + URLEncoder.encode(kw, "UTF-8");
-                JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 6000));
-                JSONArray list = j.optJSONArray("list");
-                if (list != null) {
-                    for (int i = 0; i < list.length(); i++) {
-                        JSONObject v = list.optJSONObject(i);
-                        if (v != null) siteResults.add(NetItem.from(v, site.name));
+    /**
+     * 按归一化片名合并搜索结果：同一部影片在多个源上只保留一条，
+     * 并统计线路数（有多少个源提供了它），副标题显示线路数。
+     */
+    private ArrayList<NetItem> mergeByFilm(ArrayList<NetItem> raw) {
+        java.util.LinkedHashMap<String, NetItem> map = new java.util.LinkedHashMap<String, NetItem>();
+        // 记录每部影片已统计过的「源+影片ID」，避免同一源重复返回导致线路数虚高
+        java.util.Map<String, java.util.Set<String>> counted = new java.util.HashMap<String, java.util.Set<String>>();
+        synchronized (raw) {
+            for (NetItem it : raw) {
+                if (it == null || it.title == null || it.title.trim().length() == 0) continue;
+                String key = com.shenma.tvlauncher.netsource.VodFilm.normalize(it.title);
+                if (key.length() == 0) continue;
+                NetItem exist = map.get(key);
+                if (exist == null) {
+                    it.lines = 1;
+                    map.put(key, it);
+                    java.util.Set<String> s = new java.util.HashSet<String>();
+                    s.add(sigOf(it));
+                    counted.put(key, s);
+                } else {
+                    java.util.Set<String> s = counted.get(key);
+                    if (s == null) {
+                        s = new java.util.HashSet<String>();
+                        counted.put(key, s);
                     }
-                }
-            } else {
-                try {
-                    String url = site.api + "?ac=videolist&pg=" + page
-                            + "&letter=" + URLEncoder.encode(kw.substring(0, 1), "UTF-8");
-                    JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 6000));
-                    sitePages = j.optInt("pagecount", 1);
-                    JSONArray list = j.optJSONArray("list");
-                    if (list != null) {
-                        for (int i = 0; i < list.length(); i++) {
-                            JSONObject v = list.optJSONObject(i);
-                            if (v == null) continue;
-                            if (kw.length() <= 1 || matchLetter(v, kw)) {
-                                siteResults.add(NetItem.from(v, site.name));
-                            }
-                        }
+                    if (s.add(sigOf(it))) {
+                        exist.lines++;
                     }
-                } catch (Exception e) {
-                    // letter 参数失败时回退：无 letter 取最新列表本地过滤
-                    String url = site.api + "?ac=videolist&pg=" + page;
-                    JSONObject j = new JSONObject(TvBoxConfig.fetchText(url, 6000));
-                    sitePages = j.optInt("pagecount", 1);
-                    JSONArray list = j.optJSONArray("list");
-                    if (list != null) {
-                        for (int i = 0; i < list.length(); i++) {
-                            JSONObject v = list.optJSONObject(i);
-                            if (v == null) continue;
-                            if (matchLetter(v, kw)) {
-                                siteResults.add(NetItem.from(v, site.name));
-                            }
-                        }
+                    if ((exist.pic == null || exist.pic.length() == 0) && it.pic != null) {
+                        exist.pic = it.pic;
                     }
                 }
             }
-        } catch (Exception e) {
-            Logger.w("joychang", "site[" + site.name + "] failed: " + e);
         }
-        synchronized (out) {
-            out.addAll(siteResults);
-            if (sitePages > totalPage[0]) totalPage[0] = sitePages;
-        }
+        return new ArrayList<NetItem>(map.values());
+    }
+
+    /** 线路去重签名：同一源上的同一部影片 */
+    private static String sigOf(NetItem it) {
+        return (it.siteName == null ? "" : it.siteName) + "#" + (it.id == null ? "" : it.id);
     }
 
     /** 是否含中文 */
@@ -486,6 +449,8 @@ public class SearchActivity extends Activity {
 
     static class NetItem {
         String id, title, pic, state, siteName;
+        /** 线路数：有几个源提供了这部影片（由 mergeByFilm 统计） */
+        int lines = 1;
 
         static NetItem from(JSONObject v, String siteName) {
             NetItem it = new NetItem();
@@ -565,7 +530,12 @@ public class SearchActivity extends Activity {
             NetItem it = data.get(position);
             imageLoader.displayImage(it.pic, holder.poster, options);
             holder.name.setText(it.title);
-            holder.state.setText(it.siteName + " " + it.state);
+            // 合并后一部影片只出现一次，副标题显示线路数
+            if (it.lines > 1) {
+                holder.state.setText(it.lines + " 条线路");
+            } else {
+                holder.state.setText(it.siteName + " " + it.state);
+            }
             return convertView;
         }
 
