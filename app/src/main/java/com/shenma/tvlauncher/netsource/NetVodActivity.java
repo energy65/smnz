@@ -791,16 +791,19 @@ public class NetVodActivity extends Activity {
 			infos.add(info);
 		}
 		String raw = eps.get(idx)[1];
-		String proxied = VideoList.getProxiedUrl(raw);
-		Intent it = new Intent();
-		if (proxied.equals(raw)) {
-			it.setClass(this, NetVodPlayerActivity.class);
-		} else {
-			// VIP 站点网页地址 -> XWalk 网页播放
+		String playUrl = VideoList.getProxiedUrl(raw);
+		boolean web = VideoList.shouldUseWebPlayer(playUrl);
+		if (web) {
+			// 网页/分享地址 -> XWalk 网页播放
 			for (VideoInfo info : infos) {
 				info.url = VideoList.getProxiedUrl(info.url);
 			}
+		}
+		Intent it = new Intent();
+		if (web) {
 			it.setClass(this, WebVideoPlayerActivity.class);
+		} else {
+			it.setClass(this, NetVodPlayerActivity.class);
 		}
 		it.putParcelableArrayListExtra("videoinfo", infos);
 		it.putExtra("albumPic", mVodPic);

@@ -519,7 +519,8 @@ public class SpiderVodActivity extends Activity {
 	}
 
 	private void startPlayer(String url, ArrayList<VideoInfo> infos, int idx) {
-		startPlayer(url, infos, idx, !VideoList.getProxiedUrl(url).equals(url));
+		String playUrl = VideoList.getProxiedUrl(url);
+		startPlayer(url, infos, idx, VideoList.shouldUseWebPlayer(playUrl));
 	}
 
 	private void startPlayer(String url, ArrayList<VideoInfo> infos, int idx, boolean web) {

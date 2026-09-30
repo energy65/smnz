@@ -26,6 +26,8 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -178,7 +180,15 @@ public class SearchActivity extends Activity {
         search_keybord_input.setText(str);
         search_keybord_input.setSelection(str.length());
         mSyncingInput = false;
+        // 输入过程中的防抖：连续按键只发起最后一次搜索
+        if (mPendingSearch != null) {
+            mHandler.removeCallbacks(mPendingSearch);
+            mPendingSearch = null;
+        }
         if (str.length() == 0) {
+            // 空输入：作废在途请求并清空结果
+            mSearchSeq++;
+            mPage = 1;
             mAdapter.clear();
             tv_search_empty_text.setVisibility(View.VISIBLE);
             tv_search_empty_text.setText("输入片名搜索（中文请用输入法在上方输入框键入）");
@@ -186,7 +196,14 @@ public class SearchActivity extends Activity {
         }
         Logger.v("joychang", "搜索====" + str);
         mPage = 1;
-        doSearch(str);
+        mPendingSearch = new Runnable() {
+            @Override
+            public void run() {
+                mPendingSearch = null;
+                doSearch(str);
+            }
+        };
+        mHandler.postDelayed(mPendingSearch, SEARCH_DEBOUNCE_MS);
     }
 
     private void pageDown() {
@@ -203,11 +220,12 @@ public class SearchActivity extends Activity {
      * - 爬虫站点不参与翻页，仅首页搜索，避免重复结果
      */
     private void doSearch(String keyword) {
-        if (mLoading) return;
+        if (keyword == null || keyword.trim().length() == 0) return;
         mKeyword = keyword;
         mSearchingHan = containsHan(keyword);
         showProgressDialog();
         mLoading = true;
+        // 新查询作废所有在途旧查询（mSearchSeq 比对会让旧线程自行丢弃结果）
         final int seq = ++mSearchSeq;
         final String kw = keyword;
         final int page = mPage;
@@ -293,9 +311,18 @@ public class SearchActivity extends Activity {
         }, "net-search").start();
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mPendingSearch != null) {
+            mHandler.removeCallbacks(mPendingSearch);
+            mPendingSearch = null;
+        }
+        mSearchSeq++;
+    }
+
     /** 剩余超时毫秒数，供两阶段搜索共用同一时间预算 */
-    private static long remainMs(long deadline) {
-        long left = deadline - System.currentTimeMillis();
+    private static long remainMs(long deadline) {        long left = deadline - System.currentTimeMillis();
         return left > 0 ? left : 1;
     }
 
@@ -557,6 +584,9 @@ public class SearchActivity extends Activity {
     private boolean mLoading = false, mSearchingHan = false;
     private String mKeyword = "";
     private boolean mSyncingInput = false;
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private Runnable mPendingSearch;
+    private static final long SEARCH_DEBOUNCE_MS = 350L;
     private String type = null;
     private EditText search_keybord_input;
     private TextView tv_search, tv_search_empty_text;

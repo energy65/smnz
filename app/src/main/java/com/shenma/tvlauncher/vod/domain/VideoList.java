@@ -97,21 +97,79 @@ public class VideoList implements Serializable{
 	}
 
 	public static String getProxiedUrl(String vodUrl){
+		if (vodUrl == null || vodUrl.length() == 0) {
+			return vodUrl;
+		}
 		String urlHost="";
 		try {
 			URL url=new URL(vodUrl);
 			urlHost=url.getHost();
 		} catch (MalformedURLException e) {
-			e.printStackTrace();
+			return vodUrl;
 		}
 
 		String vips[]={"qq.com","youku.com","mgtv.com","sohu.com","letv.com","pptv.com","iqiyi.com","wasu.com","baofeng.com","kankan.com"};
 		for (String vip:vips){
 			if (urlHost.endsWith(vip)){
-				return Constant.VIP_PROXY_URL+vodUrl;
+				String proxy = Constant.VIP_PROXY_URL;
+				if (proxy == null || proxy.length() == 0) {
+					return vodUrl;
+				}
+				return proxy+vodUrl;
 			}
 		}
 		return vodUrl;
+	}
+
+	/** 可直接交给原生播放器解码的媒体文件扩展名 */
+	private static final String[] MEDIA_EXT = {
+			".m3u8", ".mp4", ".flv", ".ts", ".mkv", ".avi", ".mov", ".wmv",
+			".m4v", ".mpg", ".mpeg", ".webm", ".3gp", ".rmvb", ".rm", ".asf",
+			".mp3", ".aac", ".flac", ".wav", ".m4a", ".ogg", ".wma", ".m3u"
+	};
+
+	/**
+	 * 播放地址是否指向一个直链媒体文件。
+	 * 判定前会剥离查询串与锚点，避免 CDN 用 ?token=xxx 结尾时误判。
+	 */
+	public static boolean isDirectMedia(String vodUrl){
+		if (vodUrl == null) {
+			return false;
+		}
+		String path = vodUrl.trim();
+		int cut = path.length();
+		for (int i = 0; i < path.length(); i++) {
+			char c = path.charAt(i);
+			if (c == '?' || c == '#') {
+				cut = i;
+				break;
+			}
+		}
+		path = path.substring(0, cut).toLowerCase();
+		for (String ext : MEDIA_EXT) {
+			if (path.endsWith(ext)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * 该地址是否必须走 XWalk 网页播放器。
+	 * CMS/爬虫返回的播放地址有大量是分享页或播放器页（如 .../share/xxxx.html），
+	 * 这类地址不是媒体文件，原生播放器无法解码；判断依据是地址本身形态，
+	 * 而不是硬编码站点域名。
+	 */
+	public static boolean shouldUseWebPlayer(String vodUrl){
+		if (vodUrl == null) {
+			return false;
+		}
+		String u = vodUrl.trim();
+		if (!u.startsWith("http://") && !u.startsWith("https://")) {
+			// 非 http 地址（本地文件、未知协议）交给原生播放器
+			return false;
+		}
+		return !isDirectMedia(u);
 	}
 
 	private List<VodUrl> letv_com;
